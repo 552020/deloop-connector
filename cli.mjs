@@ -343,6 +343,8 @@ async function start() {
     CONNECTOR_SESSION_FILE: SESSION,
     CONNECTOR_CRYPTO_DIR: join(DIR, "crypto"),
     DELOOP_OWNER: config.owner,
+    // The owner's time zone, for the date in every wake: this computer's.
+    DELOOP_TIMEZONE: Intl.DateTimeFormat().resolvedOptions().timeZone,
     ...(hasCommand("claude")
       ? { WAKE_COMMAND: join(HERE, "wake-claude.sh") }
       : hasCommand("codex") && { WAKE_COMMAND: join(HERE, "wake-codex.sh") }),
