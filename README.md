@@ -28,10 +28,10 @@ One local process, `bridge.mjs`, in plain Node:
 | `list_rooms` | every joined room with its name and Deloop kind |
 | `read_room` | recent messages, by `session` and `kind` (bots, owner, people) or by `room_id`; proposals and answers included |
 | `send_message` | plain text to a room |
-| `set_waiting` | sets or clears `xyz.deloop.waiting` in the owner room |
+| `set_waiting` | sends a waiting marker (`xyz.deloop.waiting` true or false) in the owner room, encrypted |
 | `propose` | a message with `xyz.deloop.proposal`, returns its id |
 | `answer` | a message with `xyz.deloop.answer` to a proposal |
-| `set_session_status` | `open`, `agreed` or `closed` |
+| `set_session_status` | sends a status marker (`xyz.deloop.status`: `open`, `agreed` or `closed`) in the bots room, encrypted |
 
 - Encrypts end to end (`crypto.mjs`): rooms with `m.room.encryption` get encrypted messages, and encrypted messages are decrypted before `read_room`, the topic and the wake see them. It uses the Matrix Rust crypto core, the same as Element's, through its Node binding `@matrix-org/matrix-sdk-crypto-nodejs` (Apache-2.0). The keys of the bot's device live in a SQLite store under `~/.deloop/crypto/<device>` (`.crypto/` when run from this repository), readable only by the user, so they survive restarts. Room keys go to every device of every member, the bots included; there is no device verification yet. A message whose key arrives a sync later is tried again for ten minutes. Unencrypted rooms work as before.
 - Wakes the brain: on each new message from someone else it runs `WAKE_COMMAND`, with the room, session, kind, sender and text in environment variables. One run at a time; messages arriving during a run cause one more run. `WAKE_FROM` limits which senders wake it, because each run costs a model call.

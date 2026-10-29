@@ -114,6 +114,36 @@ async function fetchTopics() {
   }
 }
 
+// Status and waiting are encrypted marker messages (protocol, 29 Oct 2026): the latest bots-room
+// message with xyz.deloop.status, the latest owner-room message with xyz.deloop.waiting. Sessions
+// made before carry them in state. Seen ones are kept here by room, missing ones fetched once.
+const markers = new Map(); // roomId -> { status?, waiting? }
+
+function noteMarker(roomId, content) {
+  const m = markers.get(roomId) ?? {};
+  if (typeof content?.["xyz.deloop.status"] === "string") m.status = content["xyz.deloop.status"];
+  if (typeof content?.["xyz.deloop.waiting"] === "boolean") m.waiting = content["xyz.deloop.waiting"];
+  markers.set(roomId, m);
+}
+
+const isMarker = (content) => content?.["xyz.deloop.status"] !== undefined || content?.["xyz.deloop.waiting"] !== undefined;
+
+async function fetchMarkers() {
+  for (const s of sessions()) {
+    for (const [kind, key] of [["bots", "xyz.deloop.status"], ["owner", "xyz.deloop.waiting"]]) {
+      const rid = s.rooms[kind];
+      if (!rid || markers.get(rid)?.[key.slice(11)] !== undefined || markers.get(rid)?.fetched?.includes(key)) continue;
+      const data = await api("GET", `${room(rid)}/messages?dir=b&limit=100`).catch(() => null);
+      const events = await Promise.all((data?.chunk ?? []).map((ev) => clear(rid, ev)));
+      const e = events.find((ev) => ev.type === "m.room.message" && ev.content?.[key] !== undefined); // newest first
+      if (e) noteMarker(rid, e.content);
+      const m = markers.get(rid) ?? {};
+      m.fetched = [...(m.fetched ?? []), key];
+      markers.set(rid, m);
+    }
+  }
+}
+
 function sessions() {
   const list = [];
   for (const [id] of rooms) {
@@ -128,12 +158,12 @@ function sessions() {
     list.push({
       session: id,
       topic: topics.get(id) ?? meta.topic ?? null,
-      status: meta.status,
+      status: markers.get(roomIds.bots)?.status ?? meta.status ?? "open",
       group: group ?? null,
       group_name: group ? stateOf(group, "m.room.name")?.name ?? null : null,
       rooms: roomIds,
       owner: roomIds.owner ? stateOf(roomIds.owner, "xyz.deloop.room")?.owner ?? null : null,
-      waiting: roomIds.owner ? !!stateOf(roomIds.owner, "xyz.deloop.waiting")?.waiting : false,
+      waiting: roomIds.owner ? markers.get(roomIds.owner)?.waiting ?? !!stateOf(roomIds.owner, "xyz.deloop.waiting")?.waiting : false,
     });
   }
   return list;
@@ -164,6 +194,8 @@ async function readMessages(roomId, limit) {
       time: new Date(e.origin_server_ts).toISOString(),
       body: e.type === "m.room.encrypted" ? "[encrypted: this bot has no key for this message]" : e.content.body,
       ...(e.content["xyz.deloop.topic"] && { topic: true }),
+      ...(e.content["xyz.deloop.status"] !== undefined && { status: e.content["xyz.deloop.status"] }),
+      ...(e.content["xyz.deloop.waiting"] !== undefined && { waiting: e.content["xyz.deloop.waiting"] }),
       ...(e.content["xyz.deloop.proposal"] && { proposal: e.content["xyz.deloop.proposal"] }),
       ...(e.content["xyz.deloop.answer"] && { answer: e.content["xyz.deloop.answer"] }),
     }));
@@ -283,15 +315,20 @@ async function syncLoop() {
   }
 }
 
-// A new message from someone else: the topic is kept, anything else wakes the brain.
+// A new message: markers are kept, also this bot's own; from someone else, the topic is kept and
+// anything else wakes the brain.
 async function onEvent(roomId, event) {
-  if (event.sender === session.user_id) return;
   const e = await clear(roomId, event);
   if (e.type === "m.room.encrypted") {
-    undecrypted.push({ roomId, event, at: Date.now() });
+    if (event.sender !== session.user_id) undecrypted.push({ roomId, event, at: Date.now() });
     return;
   }
   if (e.type !== "m.room.message") return;
+  if (isMarker(e.content)) {
+    noteMarker(roomId, e.content);
+    return;
+  }
+  if (event.sender === session.user_id) return;
   if (e.content?.["xyz.deloop.topic"]) {
     const s = sessionOf(roomId);
     if (s) topics.set(s, e.content.body);
@@ -343,6 +380,7 @@ function mcpServer() {
     { description: "The Deloop sessions this bot is in: topic, status, group, the ids of its rooms by kind, and whether the owner is being waited for." },
     async () => {
       await fetchTopics();
+      await fetchMarkers();
       return json(sessions());
     },
   );
@@ -375,10 +413,11 @@ function mcpServer() {
 
   server.registerTool(
     "set_waiting",
-    { description: "Set or clear xyz.deloop.waiting in the session's owner room: true while the bot needs its owner, false once they have answered.", inputSchema: { session: z.string(), waiting: z.boolean() } },
+    { description: "Set or clear waiting in the session's owner room: true while the bot needs its owner, false once they have answered. Sent as an encrypted marker message, which the app does not show in the chat.", inputSchema: { session: z.string(), waiting: z.boolean() } },
     async ({ session: s, waiting }) => {
       const rid = roomFor(s, "owner");
-      await api("PUT", `${room(rid)}/state/xyz.deloop.waiting/`, { waiting, since: Date.now() });
+      await sendMessage(rid, waiting ? "Waiting for you." : "Carrying on.", { "xyz.deloop.waiting": waiting });
+      noteMarker(rid, { "xyz.deloop.waiting": waiting });
       return json({ ok: true });
     },
   );
@@ -404,10 +443,11 @@ function mcpServer() {
 
   server.registerTool(
     "set_session_status",
-    { description: "Set the session's status, e.g. agreed once every bot has accepted the same proposal.", inputSchema: { session: z.string(), status: z.enum(["open", "agreed", "closed"]) } },
+    { description: "Set the session's status, e.g. agreed once every bot has accepted the same proposal. Sent as an encrypted marker message in the bots room, which the app does not show in the chat.", inputSchema: { session: z.string(), status: z.enum(["open", "agreed", "closed"]) } },
     async ({ session: s, status }) => {
-      const meta = stateOf(s, "xyz.deloop.session") ?? {};
-      await api("PUT", `${room(s)}/state/xyz.deloop.session/`, { ...meta, status });
+      const rid = roomFor(s, "bots");
+      await sendMessage(rid, `Session ${status}.`, { "xyz.deloop.status": status });
+      noteMarker(rid, { "xyz.deloop.status": status });
       return json({ ok: true });
     },
   );
