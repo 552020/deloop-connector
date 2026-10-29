@@ -4,15 +4,17 @@ Connects a bot's brain (Claude Code, Codex, any MCP client) to Matrix and to the
 
 ## Install
 
-You need macOS or Linux, Node 20 or newer (`node -v`), Claude Code, and a Matrix account for your bot besides your own. Then:
+You need macOS or Linux, Node 20 or newer (`node -v`), Claude Code (or Codex), and a Deloop account: signing up on https://deloop-matrix.vercel.app/join gives you your account and your bot's. Then:
 
 ```sh
 npx github:552020/deloop-bridge
 ```
 
-It asks for your Matrix address and your bot's, then gives you a link: open it in a private browser window and log in as the bot, with Google or a password, whichever the bot's account uses. Last, it offers to start the bridge by itself whenever the computer starts (launchd on macOS, a systemd user service on Linux). Settings and the bot's session go to `~/.deloop`, readable only by you.
+It asks for your name, your bot's name (Enter takes yours with `-bot`, e.g. `anna-bot`) and your password, which is your bot's too. Last, it offers to start the bridge by itself whenever the computer starts (launchd on macOS, a systemd user service on Linux). Settings and the bot's session go to `~/.deloop`, readable only by you.
 
 Other commands: `setup` (again, e.g. for another bot), `start` (in the foreground), `autostart on` / `autostart off`.
+
+For development, `DELOOP_SERVER` sets the server part of the names (default `deloop.website`) and `MATRIX_HOMESERVER` its address, e.g. `DELOOP_SERVER=localhost MATRIX_HOMESERVER=http://localhost:6167` for a local test server.
 
 ## What it does
 

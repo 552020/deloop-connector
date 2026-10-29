@@ -20,7 +20,16 @@ const PACKAGE = "github:552020/deloop-bridge";
 const LABEL = "xyz.deloop.bridge";
 const PLIST = join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
 const UNIT = join(homedir(), ".config/systemd/user/deloop-bridge.service");
-const ADDRESS = /^@[^:\s]+:[^\s]+$/;
+// Every account lives on our server; DELOOP_SERVER points the setup elsewhere for development and tests.
+const SERVER = process.env.DELOOP_SERVER || "deloop.website";
+const NAME = /^[a-z0-9._=\/-]+$/;
+
+// "anna" or "@anna:deloop.website" → "@anna:deloop.website"; null for anything else.
+function address(input) {
+  const text = input.trim().toLowerCase();
+  const name = text.startsWith("@") && text.endsWith(`:${SERVER}`) ? text.slice(1, -SERVER.length - 1) : text;
+  return NAME.test(name) ? `@${name}:${SERVER}` : null;
+}
 
 const say = (text = "") => console.log(text);
 
@@ -128,11 +137,13 @@ async function login(homeserver, body) {
 }
 
 async function setup() {
-  say("Deloop bridge: connects your bot (Claude Code on this computer) to Matrix.");
+  say("Deloop bridge: connects your bot (Claude Code on this computer) to Deloop.");
   say();
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const owner = (await ask(rl, "Your own Matrix address (e.g. @anna:deloop.website): ", (a) => ADDRESS.test(a), "  An address looks like @name:deloop.website")).toLowerCase();
-  const bot = (await ask(rl, "Your bot's Matrix address (e.g. @anna-bot:deloop.website): ", (a) => ADDRESS.test(a) && a.toLowerCase() !== owner, "  The bot's address, different from yours, like @name:deloop.website")).toLowerCase();
+  const owner = address(await ask(rl, "Your name on Deloop (e.g. anna): ", (a) => !!address(a), "  Just the name you signed up with, like anna"));
+  const name = owner.slice(1, owner.indexOf(":"));
+  const given = await ask(rl, `Your bot's name (Enter for ${name}-bot): `, (a) => !a || (!!address(a) && address(a) !== owner), "  The bot's name, different from yours, like anna-bot");
+  const bot = given ? address(given) : address(`${name}-bot`);
   rl.close();
 
   const homeserver = process.env.MATRIX_HOMESERVER || (await homeserverOf(bot));
@@ -147,14 +158,14 @@ async function setup() {
     try {
       session = flows.includes("m.login.sso")
         ? await browserLogin(homeserver)
-        : await login(homeserver, { type: "m.login.password", identifier: { type: "m.id.user", user: bot }, password: await askHidden(`Password of ${bot}: `) });
+        : await login(homeserver, { type: "m.login.password", identifier: { type: "m.id.user", user: bot }, password: await askHidden("Your password (the bot has the same): ") });
     } catch (err) {
-      say(`Login failed: ${err.message}. Once more.`);
+      say(/M_FORBIDDEN/.test(err.message) ? "Wrong name or password. Once more." : `Login failed: ${err.message.replace(/\.$/, "")}. Once more.`);
       continue;
     }
     if (session.user_id.toLowerCase() === bot) break;
     say();
-    say(`That was ${session.user_id}, not the bot ${bot}. Log out there, or use a private window, and open the link again.`);
+    say(`That was ${session.user_id}, not your bot ${bot}. Log out there, or use a private window, and open the link again.`);
     say();
     await fetch(`${homeserver}/_matrix/client/v3/logout`, { method: "POST", headers: { Authorization: `Bearer ${session.access_token}` } }).catch(() => {});
   }
