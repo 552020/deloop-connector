@@ -363,6 +363,21 @@ async function join(roomId) {
   }
 }
 
+// The protocol's rule for agreed, checked here rather than left to the model (first test, 30 Oct 2026:
+// a bot set agreed before the other had answered): only the bot that made the latest proposal sets
+// it, and only when every bot of the bots room (power level 50) has answered that proposal accepted.
+async function notAgreedYet(botsRoom) {
+  const messages = await readMessages(botsRoom, 100);
+  const proposal = [...messages].reverse().find((m) => m.proposal);
+  if (!proposal) return "There is no proposal in the bots room.";
+  if (proposal.sender !== session.user_id) return "Only the bot that made the proposal sets the session to agreed.";
+  const levels = stateOf(botsRoom, "m.room.power_levels")?.users ?? {};
+  const bots = Object.keys(levels).filter((u) => levels[u] === 50);
+  const yes = new Set(messages.filter((m) => m.answer?.proposal === proposal.proposal.id && m.answer.accepted).map((m) => m.sender));
+  const missing = bots.filter((b) => !yes.has(b));
+  return missing.length ? `Not every bot has accepted the proposal yet: waiting for ${missing.join(", ")}.` : null;
+}
+
 // ---------- MCP tools ----------
 
 const json = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, null, 2) }] });
@@ -447,6 +462,10 @@ function mcpServer() {
     { description: "Set the session's status, e.g. agreed once every bot has accepted the same proposal. Sent as an encrypted marker message in the bots room, which the app does not show in the chat.", inputSchema: { session: z.string(), status: z.enum(["open", "agreed", "closed"]) } },
     async ({ session: s, status }) => {
       const rid = roomFor(s, "bots");
+      if (status === "agreed") {
+        const refused = await notAgreedYet(rid);
+        if (refused) return json({ ok: false, error: refused });
+      }
       await sendMessage(rid, `Session ${status}.`, { "xyz.deloop.status": status });
       noteMarker(rid, { "xyz.deloop.status": status });
       return json({ ok: true });
