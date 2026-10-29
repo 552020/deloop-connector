@@ -99,8 +99,8 @@ function sessionOf(roomId) {
   return parentsOf(roomId).find((p) => stateOf(p, "xyz.deloop.session")) ?? null;
 }
 
-// The topic is the first bots-room message marked xyz.deloop.topic (protocol, 29 Oct 2026); sessions
-// made before carry it in xyz.deloop.session. Seen ones are kept here, missing ones fetched once.
+// The topic is the first bots-room message marked xyz.deloop.topic (docs/protocol.md). Seen ones are
+// kept here, missing ones fetched once.
 const topics = new Map();
 
 async function fetchTopics() {
@@ -114,9 +114,9 @@ async function fetchTopics() {
   }
 }
 
-// Status and waiting are encrypted marker messages (protocol, 29 Oct 2026): the latest bots-room
-// message with xyz.deloop.status, the latest owner-room message with xyz.deloop.waiting. Sessions
-// made before carry them in state. Seen ones are kept here by room, missing ones fetched once.
+// Status and waiting are encrypted marker messages (docs/protocol.md): the latest bots-room message
+// with xyz.deloop.status, the latest owner-room message with xyz.deloop.waiting. Seen ones are kept
+// here by room, missing ones fetched once.
 const markers = new Map(); // roomId -> { status?, waiting? }
 
 function noteMarker(roomId, content) {
@@ -157,14 +157,14 @@ function sessions() {
     const group = parentsOf(id).find((p) => stateOf(p, "xyz.deloop.group"));
     list.push({
       session: id,
-      topic: topics.get(id) ?? meta.topic ?? null,
-      status: markers.get(roomIds.bots)?.status ?? meta.status ?? "open",
+      topic: topics.get(id) ?? null,
+      status: markers.get(roomIds.bots)?.status ?? "open",
       main: meta.main === true, // the group's main chat: the ongoing conversation, not a matter to settle
       group: group ?? null,
       group_name: group ? stateOf(group, "m.room.name")?.name ?? null : null,
       rooms: roomIds,
       owner: roomIds.owner ? stateOf(roomIds.owner, "xyz.deloop.room")?.owner ?? null : null,
-      waiting: roomIds.owner ? markers.get(roomIds.owner)?.waiting ?? !!stateOf(roomIds.owner, "xyz.deloop.waiting")?.waiting : false,
+      waiting: roomIds.owner ? markers.get(roomIds.owner)?.waiting ?? false : false,
     });
   }
   return list;
