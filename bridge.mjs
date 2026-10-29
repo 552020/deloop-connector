@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import { startCrypto } from "./crypto.mjs";
 
 const HOMESERVER = process.env.MATRIX_HOMESERVER ?? "https://matrix-client.matrix.org";
 const USER = process.env.MATRIX_USER;
@@ -15,6 +16,8 @@ const WAKE_COMMAND = process.env.WAKE_COMMAND || null;
 // Senders whose messages wake the brain; empty means everyone. Each wake costs a model run.
 const WAKE_FROM = (process.env.WAKE_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 const SESSION_FILE = process.env.BRIDGE_SESSION_FILE || new URL("./.session.json", import.meta.url);
+// The encryption keys of this bot's device; readable only by the user.
+const CRYPTO_DIR = process.env.BRIDGE_CRYPTO_DIR || new URL("./.crypto", import.meta.url).pathname;
 // Upper bound on wakes per run of the bridge, as a guard against two bots answering each other forever.
 const WAKE_MAX = Number(process.env.WAKE_MAX || Infinity);
 let wakes = 0;
@@ -23,6 +26,7 @@ let wakes = 0;
 // ---------- Matrix client ----------
 
 let session;
+let crypto; // see crypto.mjs; set after login
 
 async function api(method, path, body) {
   const res = await fetch(`${HOMESERVER}/_matrix/client/v3${path}`, {
@@ -103,7 +107,9 @@ async function fetchTopics() {
   for (const s of sessions()) {
     if (topics.has(s.session) || !s.rooms.bots) continue;
     const data = await api("GET", `${room(s.rooms.bots)}/messages?dir=f&limit=20`).catch(() => null);
-    const e = data?.chunk.find((ev) => ev.type === "m.room.message" && ev.content?.["xyz.deloop.topic"]);
+    const events = await Promise.all((data?.chunk ?? []).map((ev) => clear(s.rooms.bots, ev)));
+    // The first one this bot can read: a late member has no key for the first, but for its re-send.
+    const e = events.find((ev) => ev.type === "m.room.message" && ev.content?.["xyz.deloop.topic"]);
     if (e) topics.set(s.session, e.content.body);
   }
 }
@@ -149,21 +155,49 @@ function target({ session: s, kind, room_id }) {
 
 async function readMessages(roomId, limit) {
   const data = await api("GET", `${room(roomId)}/messages?dir=b&limit=${limit}`);
-  return data.chunk
+  const events = await Promise.all(data.chunk.map((e) => clear(roomId, e)));
+  return events
     .filter((e) => e.type === "m.room.message" || e.type === "m.room.encrypted")
     .reverse()
     .map((e) => ({
       sender: e.sender,
       time: new Date(e.origin_server_ts).toISOString(),
-      body: e.type === "m.room.encrypted" ? "[encrypted: this bridge cannot read encrypted rooms yet]" : e.content.body,
+      body: e.type === "m.room.encrypted" ? "[encrypted: this bot has no key for this message]" : e.content.body,
       ...(e.content["xyz.deloop.topic"] && { topic: true }),
       ...(e.content["xyz.deloop.proposal"] && { proposal: e.content["xyz.deloop.proposal"] }),
       ...(e.content["xyz.deloop.answer"] && { answer: e.content["xyz.deloop.answer"] }),
     }));
 }
 
+// An event with an encrypted one replaced by its plaintext; unchanged if its key has not arrived.
+async function clear(roomId, e) {
+  if (e.type !== "m.room.encrypted") return e;
+  const plain = await crypto.decrypt(roomId, e);
+  return plain ? { ...e, ...plain } : e;
+}
+
+const encrypted = (roomId) => !!stateOf(roomId, "m.room.encryption");
+
+// Who gets the room key: the joined members, and the invited ones unless history is "joined".
+function members(roomId) {
+  const visibility = stateOf(roomId, "m.room.history_visibility")?.history_visibility ?? "shared";
+  const ok = visibility === "joined" ? ["join"] : ["join", "invite"];
+  const out = [];
+  for (const [k, content] of rooms.get(roomId) ?? []) {
+    if (k.startsWith("m.room.member|") && ok.includes(content?.membership)) out.push(k.slice("m.room.member|".length));
+  }
+  return { users: out, visibility };
+}
+
 async function sendMessage(roomId, text, extra = {}) {
-  const { event_id } = await api("PUT", `${room(roomId)}/send/m.room.message/${txn()}`, { msgtype: "m.text", body: text, ...extra });
+  const content = { msgtype: "m.text", body: text, ...extra };
+  if (!encrypted(roomId)) {
+    const { event_id } = await api("PUT", `${room(roomId)}/send/m.room.message/${txn()}`, content);
+    return event_id;
+  }
+  const { users, visibility } = members(roomId);
+  const sealed = await crypto.encrypt(roomId, "m.room.message", content, users, visibility);
+  const { event_id } = await api("PUT", `${room(roomId)}/send/m.room.encrypted/${txn()}`, sealed);
   return event_id;
 }
 
@@ -218,37 +252,65 @@ async function syncLoop() {
   {
     const first = await api("GET", `/sync?timeout=0&filter=${filter}`);
     since = first.next_batch;
+    await crypto.receiveSync(first);
     for (const [id, r] of Object.entries(first.rooms?.join ?? {})) {
       applyState(id, r.state?.events);
       applyState(id, r.timeline?.events);
     }
     for (const id of Object.keys(first.rooms?.invite ?? {})) await join(id);
+    const people = new Set([...rooms.keys()].filter(encrypted).flatMap((id) => members(id).users));
+    await crypto.track([...people]);
   }
-  console.log(`Synced ${rooms.size} rooms, ${sessions().length} Deloop sessions`);
+  console.log(`Synced ${rooms.size} rooms, ${sessions().length} Deloop sessions, ${[...rooms.keys()].filter(encrypted).length} encrypted`);
 
   for (;;) {
     try {
       const sync = await api("GET", `/sync?timeout=30000&since=${encodeURIComponent(since)}`);
       since = sync.next_batch;
+      await crypto.receiveSync(sync); // first: the to-device messages bring the keys for this timeline
       for (const id of Object.keys(sync.rooms?.invite ?? {})) await join(id);
       for (const [id, r] of Object.entries(sync.rooms?.join ?? {})) {
         applyState(id, r.state?.events);
         applyState(id, r.timeline?.events);
-        for (const e of r.timeline?.events ?? []) {
-          if (e.type !== "m.room.message" || e.sender === session.user_id) continue;
-          if (e.content?.["xyz.deloop.topic"]) {
-            const s = sessionOf(id);
-            if (s) topics.set(s, e.content.body);
-            continue;
-          }
-          wake({ room: id, session: sessionOf(id), kind: stateOf(id, "xyz.deloop.room")?.kind, sender: e.sender, body: e.content?.body ?? "" });
-        }
+        for (const e of r.timeline?.events ?? []) await onEvent(id, e);
       }
+      await retryUndecrypted();
       for (const id of Object.keys(sync.rooms?.leave ?? {})) rooms.delete(id);
     } catch (err) {
       console.error(err.message);
       await new Promise((r) => setTimeout(r, 5000));
     }
+  }
+}
+
+// A new message from someone else: the topic is kept, anything else wakes the brain.
+async function onEvent(roomId, event) {
+  if (event.sender === session.user_id) return;
+  const e = await clear(roomId, event);
+  if (e.type === "m.room.encrypted") {
+    undecrypted.push({ roomId, event, at: Date.now() });
+    return;
+  }
+  if (e.type !== "m.room.message") return;
+  if (e.content?.["xyz.deloop.topic"]) {
+    const s = sessionOf(roomId);
+    if (s) topics.set(s, e.content.body);
+    return;
+  }
+  wake({ room: roomId, session: sessionOf(roomId), kind: stateOf(roomId, "xyz.deloop.room")?.kind, sender: e.sender, body: e.content?.body ?? "" });
+}
+
+// A room key can arrive a sync after its message. Undecrypted messages are tried again after
+// each sync, for ten minutes.
+let undecrypted = [];
+
+async function retryUndecrypted() {
+  const waiting = undecrypted.filter((u) => Date.now() - u.at < 10 * 60_000);
+  undecrypted = [];
+  for (const u of waiting) {
+    const e = await clear(u.roomId, u.event);
+    if (e.type === "m.room.encrypted") undecrypted.push(u);
+    else await onEvent(u.roomId, u.event);
   }
 }
 
@@ -407,5 +469,7 @@ const http = createServer(async (req, res) => {
 
 await login();
 console.log(`Logged in as ${session.user_id}`);
+if (!session.device_id) session.device_id = (await api("GET", "/account/whoami")).device_id;
+crypto = await startCrypto({ api, userId: session.user_id, deviceId: session.device_id, dir: CRYPTO_DIR });
 http.listen(PORT, "127.0.0.1", () => console.log(`MCP on http://127.0.0.1:${PORT}/mcp`));
 syncLoop();

@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@matrix-org/matrix-sdk-crypto-nodejs':
+        specifier: ^0.6.6
+        version: 0.6.6
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
@@ -23,6 +26,10 @@ packages:
     peerDependencies:
       hono: ^4 || ^5.0.0-0
 
+  '@matrix-org/matrix-sdk-crypto-nodejs@0.6.6':
+    resolution: {integrity: sha512-JlYSjq9Sm/0QoUXfk6C7JppsOG0ESY8BHEIaQgjQ8iQ0GkhvJrhPZbMJmd77/Bgeahd1GENf8896nauf4ximzQ==}
+    engines: {node: '>= 24'}
+
   '@modelcontextprotocol/sdk@1.32.2':
     resolution: {integrity: sha512-SWsVtH/0vULSQStoZ6xxH2K09Li8fXYTMC64ZeogCdpZ3XSi1eCPOByV1OpuJxuI3OcmHhosDWYyii07tpPsLw==}
     engines: {node: '>=18'}
@@ -36,6 +43,10 @@ packages:
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
+
+  agent-base@7.1.4:
+    resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
+    engines: {node: '>= 14'}
 
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
@@ -202,6 +213,10 @@ packages:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
     engines: {node: '>= 0.8'}
 
+  https-proxy-agent@7.0.6:
+    resolution: {integrity: sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==}
+    engines: {node: '>= 14'}
+
   iconv-lite@0.7.3:
     resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
     engines: {node: '>=0.10.0'}
@@ -258,6 +273,11 @@ packages:
   negotiator@1.1.0:
     resolution: {integrity: sha512-NMPBRMJgiQHjbd8phG3Vebdx4kZ1H121rbl5IkMqeOsahptB9BKo/d7oJ3zTXqTgagn2bWlNSXkh0QUGM31RYg==}
     engines: {node: '>=18'}
+
+  node-downloader-helper@2.1.11:
+    resolution: {integrity: sha512-882fH2C9AWdiPCwz/2beq5t8FGMZK9Dx8TJUOIxzMCbvG7XUKM5BuJwN5f0NKo4SCQK6jR4p2TPm54mYGdGchQ==}
+    engines: {node: '>=14.18'}
+    hasBin: true
 
   object-assign@4.1.1:
     resolution: {integrity: sha512-rJgTQnkUnH1sFw8yT6VSU3zD3sWmu6sZhIseY8VX+GRu3P6F7Fu+JNDoXfklElbLJSnc3FUQHVe4cU5hj+BcUg==}
@@ -393,6 +413,13 @@ snapshots:
     dependencies:
       hono: 4.13.14
 
+  '@matrix-org/matrix-sdk-crypto-nodejs@0.6.6':
+    dependencies:
+      https-proxy-agent: 7.0.6
+      node-downloader-helper: 2.1.11
+    transitivePeerDependencies:
+      - supports-color
+
   '@modelcontextprotocol/sdk@1.32.2(zod@4.6.7)':
     dependencies:
       '@hono/node-server': 2.1.5(hono@4.13.14)
@@ -419,6 +446,8 @@ snapshots:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.1.0
+
+  agent-base@7.1.4: {}
 
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
@@ -610,6 +639,13 @@ snapshots:
       statuses: 2.0.2
       toidentifier: 1.0.1
 
+  https-proxy-agent@7.0.6:
+    dependencies:
+      agent-base: 7.1.4
+      debug: 4.4.3
+    transitivePeerDependencies:
+      - supports-color
+
   iconv-lite@0.7.3:
     dependencies:
       safer-buffer: 2.1.2
@@ -647,6 +683,8 @@ snapshots:
   negotiator@1.1.0:
     dependencies:
       content-type: 2.1.0
+
+  node-downloader-helper@2.1.11: {}
 
   object-assign@4.1.1: {}
 

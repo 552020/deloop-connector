@@ -14,7 +14,13 @@
     "setup": "node cli.mjs setup"
   },
   "dependencies": {
+    "@matrix-org/matrix-sdk-crypto-nodejs": "^0.6.6",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "zod": "^4.6.7"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@matrix-org/matrix-sdk-crypto-nodejs"
+    ]
   }
 }

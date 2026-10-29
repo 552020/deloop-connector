@@ -2,13 +2,14 @@
 // deloop-bridge: one command for the owner. Without arguments it sets the bridge up the first time
 // (bot address, browser login, autostart) and afterwards starts it. Settings live in ~/.deloop.
 import { createServer } from "node:http";
-import { mkdir, readFile, writeFile, rm, chmod } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile, rm, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline/promises";
+import { createRequire } from "node:module";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIR = join(homedir(), ".deloop");
@@ -245,6 +246,15 @@ WantedBy=default.target
   say("Autostart works on macOS and Linux only.");
 }
 
+// The encryption library is a native file fetched by its install script. npm may skip install
+// scripts, so a missing file is fetched here, once.
+async function cryptoLibrary() {
+  const pkg = dirname(createRequire(import.meta.url).resolve("@matrix-org/matrix-sdk-crypto-nodejs/package.json"));
+  if ((await readdir(pkg)).some((f) => f.endsWith(".node"))) return;
+  say("Fetching the encryption library…");
+  execFileSync(process.execPath, ["download-lib.js"], { cwd: pkg, stdio: "inherit" });
+}
+
 async function start() {
   const config = await readJson(CONFIG);
   if (!config || !existsSync(SESSION)) {
@@ -256,12 +266,14 @@ async function start() {
     MATRIX_USER: config.bot,
     BRIDGE_PORT: String(config.port ?? 7420),
     BRIDGE_SESSION_FILE: SESSION,
+    BRIDGE_CRYPTO_DIR: join(DIR, "crypto"),
     DELOOP_OWNER: config.owner,
     ...(hasCommand("claude")
       ? { WAKE_COMMAND: join(HERE, "wake-claude.sh") }
       : hasCommand("codex") && { WAKE_COMMAND: join(HERE, "wake-codex.sh") }),
   };
   for (const [k, v] of Object.entries(env)) process.env[k] ??= v;
+  await cryptoLibrary();
   await import("./bridge.mjs");
 }
 
