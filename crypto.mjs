@@ -99,6 +99,9 @@ export async function startCrypto({ api, userId, deviceId, dir }) {
         const users = members.map((u) => new UserId(u));
         await machine.updateTrackedUsers(users);
         await flush(); // device lists of new members
+        // Ask for the members' devices every time: a server may not announce the devices of someone
+        // who had none when first seen (invited before ever logging in), and they would get no key.
+        await run(machine.queryKeysForUsers(members.map((u) => new UserId(u))));
         const claim = await machine.getMissingSessions(users);
         if (claim) await run(claim);
         const settings = new EncryptionSettings();

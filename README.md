@@ -28,7 +28,7 @@ One local process, `bridge.mjs`, in plain Node:
 
 | Tool | What it does |
 |---|---|
-| `list_sessions` | the Deloop sessions the bot is in: topic, status, group, room ids by kind, waiting |
+| `list_sessions` | the Deloop sessions the bot is in: topic, status, `main` (the group's main chat), group, room ids by kind, waiting |
 | `list_rooms` | every joined room with its name and Deloop kind |
 | `read_room` | recent messages, by `session` and `kind` (bots, owner, people) or by `room_id`; proposals and answers included |
 | `send_message` | plain text to a room |

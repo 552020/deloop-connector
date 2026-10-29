@@ -159,6 +159,7 @@ function sessions() {
       session: id,
       topic: topics.get(id) ?? meta.topic ?? null,
       status: markers.get(roomIds.bots)?.status ?? meta.status ?? "open",
+      main: meta.main === true, // the group's main chat: the ongoing conversation, not a matter to settle
       group: group ?? null,
       group_name: group ? stateOf(group, "m.room.name")?.name ?? null : null,
       rooms: roomIds,
@@ -377,7 +378,7 @@ function mcpServer() {
 
   server.registerTool(
     "list_sessions",
-    { description: "The Deloop sessions this bot is in: topic, status, group, the ids of its rooms by kind, and whether the owner is being waited for." },
+    { description: "The Deloop sessions this bot is in: topic, status, whether it is the group's main chat, group, the ids of its rooms by kind, and whether the owner is being waited for." },
     async () => {
       await fetchTopics();
       await fetchMarkers();
