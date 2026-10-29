@@ -131,8 +131,8 @@ async function setup() {
   say("Deloop bridge: connects your bot (Claude Code on this computer) to Matrix.");
   say();
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const owner = (await ask(rl, "Your own Matrix address (e.g. @anna:matrix.org): ", (a) => ADDRESS.test(a), "  An address looks like @name:matrix.org")).toLowerCase();
-  const bot = (await ask(rl, "Your bot's Matrix address (e.g. @anna-bot:matrix.org): ", (a) => ADDRESS.test(a) && a.toLowerCase() !== owner, "  The bot's address, different from yours, like @name:matrix.org")).toLowerCase();
+  const owner = (await ask(rl, "Your own Matrix address (e.g. @anna:deloop.website): ", (a) => ADDRESS.test(a), "  An address looks like @name:deloop.website")).toLowerCase();
+  const bot = (await ask(rl, "Your bot's Matrix address (e.g. @anna-bot:deloop.website): ", (a) => ADDRESS.test(a) && a.toLowerCase() !== owner, "  The bot's address, different from yours, like @name:deloop.website")).toLowerCase();
   rl.close();
 
   const homeserver = process.env.MATRIX_HOMESERVER || (await homeserverOf(bot));
