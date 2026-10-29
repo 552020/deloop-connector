@@ -35,6 +35,7 @@ One local process, `bridge.mjs`, in plain Node:
 
 - Wakes the brain: on each new message from someone else it runs `WAKE_COMMAND`, with the room, session, kind, sender and text in environment variables. One run at a time; messages arriving during a run cause one more run. `WAKE_FROM` limits which senders wake it, because each run costs a model call.
 - `wake-claude.sh` is the wake command for Claude Code: one headless `claude -p` per message, which sees only the bridge's tools (no files, no shell), follows `brain.md` and exits.
+- `wake-codex.sh` does the same with Codex (`codex exec`, read-only sandbox, the bridge as its only MCP server). The setup picks Claude Code when it is installed, otherwise Codex. Not yet tested: Codex is not on the machine it was written on.
 
 It stays dumb: it moves messages and state and judges nothing. What the bot may say, and when it needs its owner, is decided by the brain.
 

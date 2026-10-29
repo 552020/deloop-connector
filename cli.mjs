@@ -257,7 +257,9 @@ async function start() {
     BRIDGE_PORT: String(config.port ?? 7420),
     BRIDGE_SESSION_FILE: SESSION,
     DELOOP_OWNER: config.owner,
-    ...(hasCommand("claude") && { WAKE_COMMAND: join(HERE, "wake-claude.sh") }),
+    ...(hasCommand("claude")
+      ? { WAKE_COMMAND: join(HERE, "wake-claude.sh") }
+      : hasCommand("codex") && { WAKE_COMMAND: join(HERE, "wake-codex.sh") }),
   };
   for (const [k, v] of Object.entries(env)) process.env[k] ??= v;
   await import("./bridge.mjs");
