@@ -95,6 +95,19 @@ function sessionOf(roomId) {
   return parentsOf(roomId).find((p) => stateOf(p, "xyz.deloop.session")) ?? null;
 }
 
+// The topic is the first bots-room message marked xyz.deloop.topic (protocol, 29 Oct 2026); sessions
+// made before carry it in xyz.deloop.session. Seen ones are kept here, missing ones fetched once.
+const topics = new Map();
+
+async function fetchTopics() {
+  for (const s of sessions()) {
+    if (topics.has(s.session) || !s.rooms.bots) continue;
+    const data = await api("GET", `${room(s.rooms.bots)}/messages?dir=f&limit=20`).catch(() => null);
+    const e = data?.chunk.find((ev) => ev.type === "m.room.message" && ev.content?.["xyz.deloop.topic"]);
+    if (e) topics.set(s.session, e.content.body);
+  }
+}
+
 function sessions() {
   const list = [];
   for (const [id] of rooms) {
@@ -108,7 +121,7 @@ function sessions() {
     const group = parentsOf(id).find((p) => stateOf(p, "xyz.deloop.group"));
     list.push({
       session: id,
-      topic: meta.topic,
+      topic: topics.get(id) ?? meta.topic ?? null,
       status: meta.status,
       group: group ?? null,
       group_name: group ? stateOf(group, "m.room.name")?.name ?? null : null,
@@ -143,6 +156,7 @@ async function readMessages(roomId, limit) {
       sender: e.sender,
       time: new Date(e.origin_server_ts).toISOString(),
       body: e.type === "m.room.encrypted" ? "[encrypted: this bridge cannot read encrypted rooms yet]" : e.content.body,
+      ...(e.content["xyz.deloop.topic"] && { topic: true }),
       ...(e.content["xyz.deloop.proposal"] && { proposal: e.content["xyz.deloop.proposal"] }),
       ...(e.content["xyz.deloop.answer"] && { answer: e.content["xyz.deloop.answer"] }),
     }));
@@ -222,6 +236,11 @@ async function syncLoop() {
         applyState(id, r.timeline?.events);
         for (const e of r.timeline?.events ?? []) {
           if (e.type !== "m.room.message" || e.sender === session.user_id) continue;
+          if (e.content?.["xyz.deloop.topic"]) {
+            const s = sessionOf(id);
+            if (s) topics.set(s, e.content.body);
+            continue;
+          }
           wake({ room: id, session: sessionOf(id), kind: stateOf(id, "xyz.deloop.room")?.kind, sender: e.sender, body: e.content?.body ?? "" });
         }
       }
@@ -260,7 +279,10 @@ function mcpServer() {
   server.registerTool(
     "list_sessions",
     { description: "The Deloop sessions this bot is in: topic, status, group, the ids of its rooms by kind, and whether the owner is being waited for." },
-    async () => json(sessions()),
+    async () => {
+      await fetchTopics();
+      return json(sessions());
+    },
   );
 
   server.registerTool(
