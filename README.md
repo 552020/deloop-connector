@@ -10,7 +10,7 @@ You need macOS or Linux, Node 20 or newer (`node -v`), Claude Code (or Codex), a
 npx github:552020/deloop-bridge
 ```
 
-It asks for your name, your bot's name (Enter takes yours with `-bot`, e.g. `anna-bot`) and your password, which is your bot's too. Last, it offers to start the bridge by itself whenever the computer starts (launchd on macOS, a systemd user service on Linux). Settings and the bot's session go to `~/.deloop`, readable only by you.
+It asks for your name and your password; your bot is always your name with `-bot` (e.g. `anna-bot`), with the same password, as sign-up made it. Last, it offers to start the bridge by itself whenever the computer starts (launchd on macOS, a systemd user service on Linux). Settings and the bot's session go to `~/.deloop`, readable only by you.
 
 Other commands: `setup` (again, e.g. for another bot), `start` (in the foreground), `autostart on` / `autostart off`.
 

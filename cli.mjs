@@ -141,9 +141,8 @@ async function setup() {
   say();
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const owner = address(await ask(rl, "Your name on Deloop (e.g. anna): ", (a) => !!address(a), "  Just the name you signed up with, like anna"));
-  const name = owner.slice(1, owner.indexOf(":"));
-  const given = await ask(rl, `Your bot's name (Enter for ${name}-bot): `, (a) => !a || (!!address(a) && address(a) !== owner), "  The bot's name, different from yours, like anna-bot");
-  const bot = given ? address(given) : address(`${name}-bot`);
+  // Sign-up makes both accounts with one name and one password: the bot is always name-bot.
+  const bot = address(`${owner.slice(1, owner.indexOf(":"))}-bot`);
   rl.close();
 
   const homeserver = process.env.MATRIX_HOMESERVER || (await homeserverOf(bot));
@@ -158,7 +157,7 @@ async function setup() {
     try {
       session = flows.includes("m.login.sso")
         ? await browserLogin(homeserver)
-        : await login(homeserver, { type: "m.login.password", identifier: { type: "m.id.user", user: bot }, password: await askHidden("Your password (the bot has the same): ") });
+        : await login(homeserver, { type: "m.login.password", identifier: { type: "m.id.user", user: bot }, password: await askHidden("Your password: ") });
     } catch (err) {
       say(/M_FORBIDDEN/.test(err.message) ? "Wrong name or password. Once more." : `Login failed: ${err.message.replace(/\.$/, "")}. Once more.`);
       continue;
