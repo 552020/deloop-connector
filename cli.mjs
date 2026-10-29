@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// deloop-bridge: one command for the owner. Without arguments it sets the bridge up the first time
+// deloop-connector: one command for the owner. Without arguments it sets the connector up the first time
 // (bot address, browser login, autostart) and afterwards starts it. Settings live in ~/.deloop.
 import { createServer } from "node:http";
 import { cp, mkdir, readFile, readdir, writeFile, rm, chmod } from "node:fs/promises";
@@ -12,17 +12,37 @@ import { createInterface } from "node:readline/promises";
 import { createRequire } from "node:module";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-// The bridge runs from a fixed copy here, made at setup and replaced only by `update`: a push to the
-// public repository does not reach a running bridge by itself, and a start needs no network.
+// The connector runs from a fixed copy here, made at setup and replaced only by `update`: a push to the
+// public repository does not reach a running connector by itself, and a start needs no network.
 const APP = join(homedir(), ".deloop", "app");
 const DIR = join(homedir(), ".deloop");
-const CONFIG = join(DIR, "bridge.json");
+const CONFIG = join(DIR, "connector.json");
 const SESSION = join(DIR, "session.json");
-const LOG = join(DIR, "bridge.log");
-const PACKAGE = "github:552020/deloop-bridge";
-const LABEL = "xyz.deloop.bridge";
+const LOG = join(DIR, "connector.log");
+const PACKAGE = "github:552020/deloop-connector";
+const LABEL = "xyz.deloop.connector";
 const PLIST = join(homedir(), "Library/LaunchAgents", `${LABEL}.plist`);
-const UNIT = join(homedir(), ".config/systemd/user/deloop-bridge.service");
+const UNIT = join(homedir(), ".config/systemd/user/deloop-connector.service");
+// Until 29 October 2026 the connector was called the bridge: its service is moved over, ~/.deloop stays.
+const OLD_LABEL = "xyz.deloop.bridge";
+const OLD_PLIST = join(homedir(), "Library/LaunchAgents", `${OLD_LABEL}.plist`);
+const OLD_UNIT = join(homedir(), ".config/systemd/user/deloop-bridge.service");
+const installed = () => [PLIST, UNIT, OLD_PLIST, OLD_UNIT].some((f) => existsSync(f));
+
+async function removeOldService() {
+  if (existsSync(OLD_PLIST)) {
+    try {
+      execFileSync("launchctl", ["bootout", `gui/${process.getuid()}/${OLD_LABEL}`], { stdio: "ignore" });
+    } catch {}
+    await rm(OLD_PLIST, { force: true });
+  }
+  if (existsSync(OLD_UNIT)) {
+    try {
+      execFileSync("systemctl", ["--user", "disable", "--now", "deloop-bridge"], { stdio: "ignore" });
+    } catch {}
+    await rm(OLD_UNIT, { force: true });
+  }
+}
 // Every account lives on our server; DELOOP_SERVER points the setup elsewhere for development and tests.
 const SERVER = process.env.DELOOP_SERVER || "deloop.website";
 const NAME = /^[a-z0-9._=\/-]+$/;
@@ -76,10 +96,10 @@ function servicePath(node) {
   return [...new Set(dirs)].join(":");
 }
 
-// Copies this bridge to ~/.deloop/app and installs its dependencies there.
+// Copies this connector to ~/.deloop/app and installs its dependencies there.
 async function install() {
   if (HERE === APP) return;
-  say("Installing the bridge into ~/.deloop/app…");
+  say("Installing the connector into ~/.deloop/app…");
   await rm(APP, { recursive: true, force: true });
   const skip = /(^|\/)(node_modules|\.crypto|\.env|\.session\.json)(\/|$)/;
   await cp(HERE, APP, { recursive: true, filter: (src) => !skip.test(src.slice(HERE.length)) });
@@ -171,7 +191,7 @@ async function login(homeserver, body) {
   const res = await fetch(`${homeserver}/_matrix/client/v3/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, initial_device_display_name: "deloop bridge" }),
+    body: JSON.stringify({ ...body, initial_device_display_name: "deloop connector" }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error ?? `Login failed (${res.status})`);
@@ -179,7 +199,7 @@ async function login(homeserver, body) {
 }
 
 async function setup() {
-  say("Deloop bridge: connects your bot (Claude Code on this computer) to Deloop.");
+  say("Deloop connector: connects your bot (Claude Code on this computer) to Deloop.");
   say();
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const owner = address(await ask(rl, "Your name on Deloop (e.g. anna): ", (a) => !!address(a), "  Just the name you signed up with, like anna"));
@@ -217,19 +237,19 @@ async function setup() {
 
   if (!hasCommand("claude")) {
     say();
-    say("Claude Code is not installed: the bridge runs, but your bot will not answer by itself.");
-    say("Install it from https://claude.com/claude-code, then start the bridge again.");
+    say("Claude Code is not installed: the connector runs, but your bot will not answer by itself.");
+    say("Install it from https://claude.com/claude-code, then start the connector again.");
   }
 
   say();
   const rl2 = createInterface({ input: process.stdin, output: process.stdout });
-  const auto = (await rl2.question("Start the bridge by itself whenever this computer starts? [Y/n] ")).trim().toLowerCase();
+  const auto = (await rl2.question("Start the connector by itself whenever this computer starts? [Y/n] ")).trim().toLowerCase();
   rl2.close();
   if (auto === "" || auto.startsWith("y")) {
     await install();
     await autostart(true);
     say();
-    say("Done. The bridge runs in the background now and after every restart.");
+    say("Done. The connector runs in the background now and after every restart.");
     say(`Its log: ${LOG}. Stop it for good with: npx ${PACKAGE} autostart off`);
     return false;
   }
@@ -240,6 +260,7 @@ async function setup() {
 
 // launchd on macOS, a systemd user service on Linux. Both run the copy in ~/.deloop/app with node.
 async function autostart(on) {
+  await removeOldService();
   const node = stableNode();
   const cli = join(APP, "cli.mjs");
   const path = servicePath(node);
@@ -271,14 +292,14 @@ async function autostart(on) {
   }
   if (platform() === "linux") {
     try {
-      execFileSync("systemctl", ["--user", "disable", "--now", "deloop-bridge"], { stdio: "ignore" });
+      execFileSync("systemctl", ["--user", "disable", "--now", "deloop-connector"], { stdio: "ignore" });
     } catch {}
     if (!on) return rm(UNIT, { force: true });
     await mkdir(dirname(UNIT), { recursive: true });
     await writeFile(
       UNIT,
       `[Unit]
-Description=Deloop bridge
+Description=Deloop connector
 After=network-online.target
 
 [Service]
@@ -294,7 +315,7 @@ WantedBy=default.target
 `,
     );
     execFileSync("systemctl", ["--user", "daemon-reload"]);
-    execFileSync("systemctl", ["--user", "enable", "--now", "deloop-bridge"]);
+    execFileSync("systemctl", ["--user", "enable", "--now", "deloop-connector"]);
     return;
   }
   say("Autostart works on macOS and Linux only.");
@@ -318,9 +339,9 @@ async function start() {
   const env = {
     MATRIX_HOMESERVER: config.homeserver,
     MATRIX_USER: config.bot,
-    BRIDGE_PORT: String(config.port ?? 7420),
-    BRIDGE_SESSION_FILE: SESSION,
-    BRIDGE_CRYPTO_DIR: join(DIR, "crypto"),
+    CONNECTOR_PORT: String(config.port ?? 7420),
+    CONNECTOR_SESSION_FILE: SESSION,
+    CONNECTOR_CRYPTO_DIR: join(DIR, "crypto"),
     DELOOP_OWNER: config.owner,
     ...(hasCommand("claude")
       ? { WAKE_COMMAND: join(HERE, "wake-claude.sh") }
@@ -328,7 +349,7 @@ async function start() {
   };
   for (const [k, v] of Object.entries(env)) process.env[k] ??= v;
   await cryptoLibrary();
-  await import("./bridge.mjs");
+  await import("./connector.mjs");
 }
 
 const [command, arg] = process.argv.slice(2);
@@ -337,18 +358,18 @@ if (command === "setup") {
 } else if (command === "start") {
   await start();
 } else if (command === "update") {
-  // Run as `npx github:552020/deloop-bridge update`: this newest copy replaces the installed one.
+  // Run as `npx github:552020/deloop-connector update`: this newest copy replaces the installed one.
   await install();
-  if (existsSync(PLIST) || existsSync(UNIT)) {
+  if (installed()) {
     await autostart(true);
-    say("Updated. The bridge in the background runs the new version.");
+    say("Updated. The connector in the background runs the new version.");
   } else say("Updated.");
 } else if (command === "autostart") {
   if (arg !== "off") await install();
   await autostart(arg !== "off");
-  say(arg === "off" ? "Autostart off; the bridge is stopped." : "Autostart on; the bridge is running.");
+  say(arg === "off" ? "Autostart off; the connector is stopped." : "Autostart on; the connector is running.");
 } else if (!command) {
-  if (existsSync(PLIST) || existsSync(UNIT)) say(`The bridge already runs in the background. Log: ${LOG}. Set it up again with: npx ${PACKAGE} setup`);
+  if (installed()) say(`The connector already runs in the background. Log: ${LOG}. Set it up again with: npx ${PACKAGE} setup`);
   else if ((await readJson(CONFIG)) && existsSync(SESSION)) await start();
   else if (await setup()) await start();
 } else {

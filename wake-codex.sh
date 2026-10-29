@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 codex exec \
   --skip-git-repo-check \
   --sandbox read-only \
-  -c "mcp_servers.deloop.url=\"http://127.0.0.1:${BRIDGE_PORT:-7420}/mcp\"" \
+  -c "mcp_servers.deloop.url=\"http://127.0.0.1:${CONNECTOR_PORT:-7420}/mcp\"" \
   "$(cat brain.md)
 
 New message in Matrix room $DELOOP_ROOM (session: ${DELOOP_SESSION:-none}, kind: ${DELOOP_KIND:-plain room}) from $DELOOP_SENDER:

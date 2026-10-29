@@ -1,6 +1,6 @@
-// End-to-end encryption for the bridge (docs/encryption.md): the Matrix Rust crypto core
+// End-to-end encryption for the connector (docs/encryption.md): the Matrix Rust crypto core
 // (matrix-sdk-crypto, the same as Element's) as a Node binding, keys in a SQLite store on disk.
-// The bridge feeds it what /sync returns and sends the requests it asks for; it encrypts
+// The connector feeds it what /sync returns and sends the requests it asks for; it encrypts
 // messages for rooms with m.room.encryption and decrypts m.room.encrypted events.
 import { mkdir } from "node:fs/promises";
 import {
@@ -23,7 +23,7 @@ const VISIBILITY = {
   world_readable: HistoryVisibility.WorldReadable,
 };
 
-// `api(method, path, body)` is the bridge's client-server call; `dir` holds the store, one per device.
+// `api(method, path, body)` is the connector's client-server call; `dir` holds the store, one per device.
 export async function startCrypto({ api, userId, deviceId, dir }) {
   const store = `${dir}/${deviceId}`;
   await mkdir(store, { recursive: true, mode: 0o700 });
@@ -49,7 +49,7 @@ export async function startCrypto({ api, userId, deviceId, dir }) {
       case RequestType.RoomMessage:
         return api("PUT", `/rooms/${encodeURIComponent(request.roomId)}/send/${encodeURIComponent(request.eventType)}/${txn}`, JSON.parse(request.body));
       default:
-        return null; // key backup: not used by the bridge
+        return null; // key backup: not used by the connector
     }
   }
 

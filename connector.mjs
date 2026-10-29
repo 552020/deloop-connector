@@ -10,15 +10,15 @@ import { startCrypto } from "./crypto.mjs";
 const HOMESERVER = process.env.MATRIX_HOMESERVER ?? "https://matrix-client.matrix.org";
 const USER = process.env.MATRIX_USER;
 const PASSWORD = process.env.MATRIX_PASSWORD;
-const PORT = Number(process.env.BRIDGE_PORT ?? 7420);
-const TOKEN = process.env.BRIDGE_TOKEN || null;
+const PORT = Number(process.env.CONNECTOR_PORT ?? 7420);
+const TOKEN = process.env.CONNECTOR_TOKEN || null;
 const WAKE_COMMAND = process.env.WAKE_COMMAND || null;
 // Senders whose messages wake the brain; empty means everyone. Each wake costs a model run.
 const WAKE_FROM = (process.env.WAKE_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-const SESSION_FILE = process.env.BRIDGE_SESSION_FILE || new URL("./.session.json", import.meta.url);
+const SESSION_FILE = process.env.CONNECTOR_SESSION_FILE || new URL("./.session.json", import.meta.url);
 // The encryption keys of this bot's device; readable only by the user.
-const CRYPTO_DIR = process.env.BRIDGE_CRYPTO_DIR || new URL("./.crypto", import.meta.url).pathname;
-// Upper bound on wakes per run of the bridge, as a guard against two bots answering each other forever.
+const CRYPTO_DIR = process.env.CONNECTOR_CRYPTO_DIR || new URL("./.crypto", import.meta.url).pathname;
+// Upper bound on wakes per run of the connector, as a guard against two bots answering each other forever.
 const WAKE_MAX = Number(process.env.WAKE_MAX || Infinity);
 let wakes = 0;
 
@@ -51,16 +51,16 @@ async function login() {
   } catch {
     session = undefined;
   }
-  // Without a password the session comes from the browser login of `deloop-bridge setup`.
+  // Without a password the session comes from the browser login of `deloop-connector setup`.
   if (!USER || !PASSWORD) {
-    console.error("Not logged in: run `npx github:552020/deloop-bridge setup`, or set MATRIX_USER and MATRIX_PASSWORD in bridge/.env");
+    console.error("Not logged in: run `npx github:552020/deloop-connector setup`, or set MATRIX_USER and MATRIX_PASSWORD in connector/.env");
     process.exit(1);
   }
   session = await api("POST", "/login", {
     type: "m.login.password",
     identifier: { type: "m.id.user", user: USER },
     password: PASSWORD,
-    initial_device_display_name: "deloop bridge",
+    initial_device_display_name: "deloop connector",
   });
   await writeFile(SESSION_FILE, JSON.stringify(session, null, 2));
 }
@@ -236,7 +236,7 @@ async function sendMessage(roomId, text, extra = {}) {
 
 // ---------- Wake ----------
 
-// MCP only lets the brain call the bridge. To reach a brain that is not running, the bridge runs
+// MCP only lets the brain call the connector. To reach a brain that is not running, the connector runs
 // WAKE_COMMAND on new messages: one run at a time, further messages during a run cause one more run.
 let waking = false;
 let pending = null;
@@ -374,7 +374,7 @@ const where = {
 };
 
 function mcpServer() {
-  const server = new McpServer({ name: "deloop-bridge", version: "0.1.0" });
+  const server = new McpServer({ name: "deloop-connector", version: "0.1.0" });
 
   server.registerTool(
     "list_sessions",
@@ -458,7 +458,7 @@ function mcpServer() {
 
 // ---------- HTTP ----------
 
-// Pages allowed to ask the bridge which bot it runs, so the app can fill in the bot's address.
+// Pages allowed to ask the connector which bot it runs, so the app can fill in the bot's address.
 const APP_ORIGINS = ["https://deloop-matrix.vercel.app", "http://localhost:3000"];
 
 function whoami(req, res) {
