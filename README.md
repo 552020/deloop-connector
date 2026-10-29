@@ -12,7 +12,9 @@ npx github:552020/deloop-bridge
 
 It asks for your name and your password; your bot is always your name with `-bot` (e.g. `anna-bot`), with the same password, as sign-up made it. Last, it offers to start the bridge by itself whenever the computer starts (launchd on macOS, a systemd user service on Linux). Settings and the bot's session go to `~/.deloop`, readable only by you.
 
-Other commands: `setup` (again, e.g. for another bot), `start` (in the foreground), `autostart on` / `autostart off`.
+With autostart, the bridge is copied to `~/.deloop/app` with its dependencies (from `package-lock.json`), and the service runs that copy with node, by a path that survives `brew upgrade node`, and a PATH with only node, Claude Code or Codex, and the system. It does not fetch anything at start: a new version comes only with `npx github:552020/deloop-bridge update`, which replaces the copy and restarts the service.
+
+Other commands: `setup` (again, e.g. for another bot), `start` (in the foreground), `update`, `autostart on` / `autostart off`.
 
 For development, `DELOOP_SERVER` sets the server part of the names (default `deloop.website`) and `MATRIX_HOMESERVER` its address, e.g. `DELOOP_SERVER=localhost MATRIX_HOMESERVER=http://localhost:6167` for a local test server.
 

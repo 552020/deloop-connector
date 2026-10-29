@@ -2,7 +2,7 @@
 // deloop-bridge: one command for the owner. Without arguments it sets the bridge up the first time
 // (bot address, browser login, autostart) and afterwards starts it. Settings live in ~/.deloop.
 import { createServer } from "node:http";
-import { mkdir, readFile, readdir, writeFile, rm, chmod } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, writeFile, rm, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir, platform } from "node:os";
@@ -12,6 +12,9 @@ import { createInterface } from "node:readline/promises";
 import { createRequire } from "node:module";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// The bridge runs from a fixed copy here, made at setup and replaced only by `update`: a push to the
+// public repository does not reach a running bridge by itself, and a start needs no network.
+const APP = join(homedir(), ".deloop", "app");
 const DIR = join(homedir(), ".deloop");
 const CONFIG = join(DIR, "bridge.json");
 const SESSION = join(DIR, "session.json");
@@ -45,6 +48,45 @@ async function writePrivate(file, value) {
   await mkdir(DIR, { recursive: true });
   await writeFile(file, JSON.stringify(value, null, 2));
   await chmod(file, 0o600);
+}
+
+// Where a command lives, or null; never a temporary npx folder or a project's node_modules.
+function which(name) {
+  try {
+    const path = execFileSync("/bin/sh", ["-c", `command -v ${name}`]).toString().trim();
+    return path && !/_npx|node_modules/.test(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+// The node binary by a path that survives upgrades: Homebrew's versioned Cellar path
+// (/opt/homebrew/Cellar/node/26.10.0_1/bin/node) becomes its stable link.
+function stableNode() {
+  const node = process.execPath;
+  const m = node.match(/^(.*)\/Cellar\/(node(?:@[\d.]+)?)\/[^/]+\/bin\/node$/);
+  if (!m) return node;
+  for (const link of [`${m[1]}/opt/${m[2]}/bin/node`, `${m[1]}/bin/node`]) if (existsSync(link)) return link;
+  return node;
+}
+
+// The PATH of the background service: node, the brain (claude, codex) and the system, nothing else.
+function servicePath(node) {
+  const dirs = [dirname(node), ...["claude", "codex"].map(which).filter(Boolean).map((p) => dirname(p)), "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+  return [...new Set(dirs)].join(":");
+}
+
+// Copies this bridge to ~/.deloop/app and installs its dependencies there.
+async function install() {
+  if (HERE === APP) return;
+  say("Installing the bridge into ~/.deloop/app…");
+  await rm(APP, { recursive: true, force: true });
+  const skip = /(^|\/)(node_modules|\.crypto|\.env|\.session\.json)(\/|$)/;
+  await cp(HERE, APP, { recursive: true, filter: (src) => !skip.test(src.slice(HERE.length)) });
+  // Without the npm_ variables of a running npx, which would point npm at its own temporary folder.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.toLowerCase().startsWith("npm_")));
+  execFileSync(join(dirname(process.execPath), "npm"), ["install", "--omit=dev", "--no-audit", "--no-fund", "--loglevel=error"], { cwd: APP, env, stdio: "inherit" });
+  await cryptoLibrary(APP);
 }
 
 function hasCommand(name) {
@@ -184,6 +226,7 @@ async function setup() {
   const auto = (await rl2.question("Start the bridge by itself whenever this computer starts? [Y/n] ")).trim().toLowerCase();
   rl2.close();
   if (auto === "" || auto.startsWith("y")) {
+    await install();
     await autostart(true);
     say();
     say("Done. The bridge runs in the background now and after every restart.");
@@ -195,10 +238,11 @@ async function setup() {
   return true;
 }
 
-// launchd on macOS, a systemd user service on Linux. Both run the published package through npx.
+// launchd on macOS, a systemd user service on Linux. Both run the copy in ~/.deloop/app with node.
 async function autostart(on) {
-  const npx = join(dirname(process.execPath), "npx");
-  const path = process.env.PATH ?? "";
+  const node = stableNode();
+  const cli = join(APP, "cli.mjs");
+  const path = servicePath(node);
   if (platform() === "darwin") {
     const uid = process.getuid();
     try {
@@ -213,7 +257,7 @@ async function autostart(on) {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>${LABEL}</string>
-  <key>ProgramArguments</key><array><string>${xml(npx)}</string><string>-y</string><string>${PACKAGE}</string><string>start</string></array>
+  <key>ProgramArguments</key><array><string>${xml(node)}</string><string>${xml(cli)}</string><string>start</string></array>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>${xml(path)}</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -238,7 +282,7 @@ Description=Deloop bridge
 After=network-online.target
 
 [Service]
-ExecStart=${npx} -y ${PACKAGE} start
+ExecStart=${node} ${cli} start
 Environment=PATH=${path}
 Restart=always
 RestartSec=10
@@ -258,8 +302,8 @@ WantedBy=default.target
 
 // The encryption library is a native file fetched by its install script. npm may skip install
 // scripts, so a missing file is fetched here, once.
-async function cryptoLibrary() {
-  const pkg = dirname(createRequire(import.meta.url).resolve("@matrix-org/matrix-sdk-crypto-nodejs/package.json"));
+async function cryptoLibrary(base = HERE) {
+  const pkg = dirname(createRequire(join(base, "cli.mjs")).resolve("@matrix-org/matrix-sdk-crypto-nodejs/package.json"));
   if ((await readdir(pkg)).some((f) => f.endsWith(".node"))) return;
   say("Fetching the encryption library…");
   execFileSync(process.execPath, ["download-lib.js"], { cwd: pkg, stdio: "inherit" });
@@ -292,7 +336,15 @@ if (command === "setup") {
   if (await setup()) await start();
 } else if (command === "start") {
   await start();
+} else if (command === "update") {
+  // Run as `npx github:552020/deloop-bridge update`: this newest copy replaces the installed one.
+  await install();
+  if (existsSync(PLIST) || existsSync(UNIT)) {
+    await autostart(true);
+    say("Updated. The bridge in the background runs the new version.");
+  } else say("Updated.");
 } else if (command === "autostart") {
+  if (arg !== "off") await install();
   await autostart(arg !== "off");
   say(arg === "off" ? "Autostart off; the bridge is stopped." : "Autostart on; the bridge is running.");
 } else if (!command) {
@@ -300,5 +352,5 @@ if (command === "setup") {
   else if ((await readJson(CONFIG)) && existsSync(SESSION)) await start();
   else if (await setup()) await start();
 } else {
-  say(`Usage: npx ${PACKAGE} [setup | start | autostart on|off]`);
+  say(`Usage: npx ${PACKAGE} [setup | start | update | autostart on|off]`);
 }
