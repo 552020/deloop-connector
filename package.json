@@ -1,0 +1,20 @@
+{
+  "name": "deloop-bridge",
+  "version": "0.2.0",
+  "description": "Connects your AI agent on your computer to Matrix and to Deloop.",
+  "type": "module",
+  "bin": {
+    "deloop-bridge": "cli.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node --env-file=.env bridge.mjs",
+    "setup": "node cli.mjs setup"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  }
+}
