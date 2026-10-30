@@ -1,11 +1,15 @@
 import { createServer } from "node:http";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, rm } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { startCrypto } from "./crypto.mjs";
+import { hasFolder, ownerFolder, slice } from "./slice.mjs";
 
 const HOMESERVER = process.env.MATRIX_HOMESERVER ?? "https://matrix-client.matrix.org";
 const USER = process.env.MATRIX_USER;
@@ -20,6 +24,8 @@ const SESSION_FILE = process.env.CONNECTOR_SESSION_FILE || new URL("./.session.j
 const CRYPTO_DIR = process.env.CONNECTOR_CRYPTO_DIR || new URL("./.crypto", import.meta.url).pathname;
 // Upper bound on wakes per run of the connector, as a guard against two bots answering each other forever.
 const WAKE_MAX = Number(process.env.WAKE_MAX || Infinity);
+// The agent's directory (docs/template.md): catalogue, mandate, memory. Without it, WAKE_CONTEXT as given.
+const AGENT_DIR = process.env.DELOOP_AGENT_DIR || "";
 let wakes = 0;
 
 
@@ -241,6 +247,30 @@ async function sendMessage(roomId, text, extra = {}) {
 let waking = false;
 let pending = null;
 
+// What of the agent's directory this wake carries, as a file for wake-context.sh: from the owner room the
+// whole directory; from any other room the slice for the other people present (slice.mjs), cut here,
+// before any model runs. The people of a room are its members other than bots (power level 50) and the owner.
+function wakeContext(ctx) {
+  if (!hasFolder(AGENT_DIR)) return null;
+  let text;
+  if (ctx.kind === "owner") text = ownerFolder(AGENT_DIR);
+  else {
+    const rid = ctx.kind === "people" || !ctx.session ? ctx.room : roomFor(ctx.session, "bots");
+    const levels = stateOf(rid, "m.room.power_levels")?.users ?? {};
+    const owner = process.env.DELOOP_OWNER || "";
+    const people = [];
+    for (const [k, content] of rooms.get(rid) ?? []) {
+      if (!k.startsWith("m.room.member|") || !["join", "invite"].includes(content?.membership)) continue;
+      const who = k.slice("m.room.member|".length);
+      if (who !== session.user_id && who !== owner && levels[who] !== 50) people.push(who);
+    }
+    text = slice(AGENT_DIR, people);
+  }
+  const file = joinPath(tmpdir(), `deloop-context-${process.pid}-${wakes}.md`);
+  writeFileSync(file, text);
+  return file;
+}
+
 function wake(ctx) {
   if (!WAKE_COMMAND || (WAKE_FROM.length && !WAKE_FROM.includes(ctx.sender))) return;
   if (wakes >= WAKE_MAX) {
@@ -254,6 +284,7 @@ function wake(ctx) {
   waking = true;
   wakes++;
   console.log(`Wake: ${ctx.sender} in ${ctx.kind ?? ctx.room}`);
+  const context = wakeContext(ctx);
   const child = spawn(WAKE_COMMAND, {
     shell: true,
     stdio: ["ignore", "inherit", "inherit"],
@@ -265,9 +296,11 @@ function wake(ctx) {
       DELOOP_KIND: ctx.kind ?? "",
       DELOOP_SENDER: ctx.sender,
       DELOOP_BODY: ctx.body,
+      ...(context && { WAKE_CONTEXT: context }),
     },
   });
   child.on("exit", () => {
+    if (context) rm(context, { force: true });
     waking = false;
     if (pending) {
       const next = pending;

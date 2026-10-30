@@ -17,6 +17,19 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = join(homedir(), ".deloop", "app");
 const DIR = join(homedir(), ".deloop");
 const CONFIG = join(DIR, "connector.json");
+// The agent's directory (docs/template.md), made from template/agent at setup; update replaces only its instructions.md.
+const AGENT = join(DIR, "agent");
+
+async function makeAgent(name) {
+  if (!existsSync(AGENT)) {
+    await cp(join(HERE, "template", "agent"), AGENT, { recursive: true });
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const file = join(AGENT, "agent.md");
+    const text = (await readFile(file, "utf8")).replace(/^name: *$/m, `name: ${name}`).replace(/^time zone: *$/m, `time zone: ${timezone}`);
+    await writeFile(file, text);
+  }
+  await cp(join(HERE, "instructions.md"), join(AGENT, "instructions.md"));
+}
 const SESSION = join(DIR, "session.json");
 const LOG = join(DIR, "connector.log");
 const PACKAGE = "github:552020/deloop-connector";
@@ -205,7 +218,10 @@ async function setup() {
   const owner = address(await ask(rl, "Your name on Deloop (e.g. anna): ", (a) => !!address(a), "  Just the name you signed up with, like anna"));
   // Sign-up makes both accounts with one name and one password: the bot is always name-bot.
   const bot = address(`${owner.slice(1, owner.indexOf(":"))}-bot`);
+  const person = owner.slice(1, owner.indexOf(":"));
+  const name = existsSync(AGENT) ? null : (await ask(rl, `Your agent's name, shown in the chat (Enter for "${person}'s agent"): `)) || `${person}'s agent`;
   rl.close();
+  if (name !== null) await makeAgent(name);
 
   const homeserver = process.env.MATRIX_HOMESERVER || (await homeserverOf(bot));
   const flows = (await (await fetch(`${homeserver}/_matrix/client/v3/login`)).json()).flows?.map((f) => f.type) ?? [];
@@ -342,6 +358,7 @@ async function start() {
     CONNECTOR_PORT: String(config.port ?? 7420),
     CONNECTOR_SESSION_FILE: SESSION,
     CONNECTOR_CRYPTO_DIR: join(DIR, "crypto"),
+    DELOOP_AGENT_DIR: AGENT,
     DELOOP_OWNER: config.owner,
     // The owner's time zone, for the date in every wake: this computer's.
     DELOOP_TIMEZONE: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -360,6 +377,7 @@ if (command === "setup") {
 } else if (command === "start") {
   await start();
 } else if (command === "update") {
+  if (existsSync(AGENT)) await makeAgent(null);
   // Run as `npx github:552020/deloop-connector update`: this newest copy replaces the installed one.
   await install();
   if (installed()) {
