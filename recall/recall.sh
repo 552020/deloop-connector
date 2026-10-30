@@ -5,6 +5,8 @@
 #   recall.sh status           the index's state, as JSON
 #   recall.sh survey PATH ...  counts and dates of a path, never its contents
 #   recall.sh search "question" [k]
+#   recall.sh machine          what this computer can carry as the local learner, and the sentence for the person
+#   recall.sh propose MODEL [--category NAME]...   catalogue proposals from the archive, by the local model in Ollama
 # The model (DELOOP_RECALL_MODEL, multilingual mpnet-base, 1 GB, by default) is downloaded on the first index run.
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -28,5 +30,10 @@ case "$cmd" in
   search)
     [ -x "$PY" ] || { echo "Not installed." >&2; exit 1; }
     "$PY" "$HERE/recall.py" "$@" ;;
-  *) sed -n '2,8p' "$0"; exit 1 ;;
+  machine) python3 "$HERE/machine.py" "$@" ;;
+  propose)
+    [ -x "$PY" ] || { echo "Not installed." >&2; exit 1; }
+    model="$1"; [ -n "$model" ] || { echo "recall.sh propose MODEL" >&2; exit 1; }; shift
+    "$PY" "$HERE/propose.py" --model "$model" "$@" ;;
+  *) sed -n '2,10p' "$0"; exit 1 ;;
 esac

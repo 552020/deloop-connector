@@ -410,10 +410,34 @@ async function status() {
   say(`Connector: ${up ? `running, MCP on http://127.0.0.1:${port}/mcp` : "not running"}`);
   say(`Autostart: ${existsSync(PLIST) || existsSync(UNIT) ? "on" : existsSync(OLD_PLIST) || existsSync(OLD_UNIT) ? `the old service of the bridge: run npx ${PACKAGE} update` : "off"}`);
   say(`Model: ${hasCommand("claude") ? "Claude Code" : hasCommand("codex") ? "Codex" : "none installed, so the agent cannot answer"}`);
+  say(`Learner: ${config.learner ? `${config.learner.model} in Ollama, for the owner room` : "off"}`);
   say(`Agent's directory: ${existsSync(AGENT) ? AGENT : "missing"}`);
   const log = await readFile(LOG, "utf8").catch(() => "");
   const wakes = log.split("\n").filter((l) => /^Wake/.test(l)).slice(-5);
   say(wakes.length ? `Last wakes (${LOG}):\n  ${wakes.join("\n  ")}` : `No wakes in ${LOG} yet.`);
+}
+
+// `learner on <model>` / `learner off`: owner-room wakes on the local model in Ollama, or back on the speaking model.
+// Takes effect at the connector's next start.
+async function learner(onOff, model) {
+  const config = await readJson(CONFIG);
+  if (!config) {
+    say(`Not set up yet: run npx ${PACKAGE}`);
+    process.exit(1);
+  }
+  if (onOff === "on" && model) config.learner = { model };
+  else if (onOff === "off") delete config.learner;
+  else {
+    say(config.learner ? `Learner: ${config.learner.model} in Ollama, for the owner room.` : "Learner: off; the owner room uses the same model as the other rooms.");
+    say("Change it with: learner on <ollama model> | learner off");
+    return;
+  }
+  await writePrivate(CONFIG, config);
+  say(config.learner ? `The owner room now goes to ${model} in Ollama, on this computer.` : "The owner room now uses the same model as the other rooms.");
+  if (installed()) {
+    await autostart(true);
+    say("The connector in the background was restarted.");
+  } else say("It takes effect when the connector starts next.");
 }
 
 async function start() {
@@ -435,6 +459,8 @@ async function start() {
     ...(hasCommand("claude")
       ? { WAKE_COMMAND: join(HERE, "wake-claude.sh") }
       : hasCommand("codex") && { WAKE_COMMAND: join(HERE, "wake-codex.sh") }),
+    // The local learner: owner-room wakes on a model in Ollama, set by `learner on <model>`.
+    ...(config.learner?.model && { WAKE_OWNER_COMMAND: `"${process.execPath}" "${join(HERE, "wake-ollama.mjs")}"`, OLLAMA_MODEL: config.learner.model }),
   };
   for (const [k, v] of Object.entries(env)) process.env[k] ??= v;
   await cryptoLibrary();
@@ -448,6 +474,8 @@ if (command === "setup") {
   if (await setup()) await start();
 } else if (command === "status") {
   await status();
+} else if (command === "learner") {
+  await learner(arg, process.argv[4]);
 } else if (command === "start") {
   await start();
 } else if (command === "update") {
@@ -467,5 +495,5 @@ if (command === "setup") {
   else if ((await readJson(CONFIG)) && existsSync(SESSION)) await start();
   else if (await setup()) await start();
 } else {
-  say(`Usage: npx ${PACKAGE} [setup | start | status | update | autostart on|off]`);
+  say(`Usage: npx ${PACKAGE} [setup | start | status | update | autostart on|off | learner on <model>|off]`);
 }

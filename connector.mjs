@@ -17,6 +17,8 @@ const PASSWORD = process.env.MATRIX_PASSWORD;
 const PORT = Number(process.env.CONNECTOR_PORT ?? 7420);
 const TOKEN = process.env.CONNECTOR_TOKEN || null;
 const WAKE_COMMAND = process.env.WAKE_COMMAND || null;
+// Owner-room wakes on another model, the local learner (wake-ollama.mjs), so the archive stays on this computer.
+const WAKE_OWNER_COMMAND = process.env.WAKE_OWNER_COMMAND || null;
 // Senders whose messages wake the brain; empty means everyone. Each wake costs a model run.
 const WAKE_FROM = (process.env.WAKE_FROM ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 const SESSION_FILE = process.env.CONNECTOR_SESSION_FILE || new URL("./.session.json", import.meta.url);
@@ -302,9 +304,13 @@ function wake(ctx) {
   wakeKind = ctx.kind ?? "plain";
   archiveRead = false;
   wakes++;
-  console.log(`Wake: ${ctx.sender} in ${ctx.kind ?? ctx.room}`);
+  console.log(`Wake: ${ctx.sender} in ${ctx.kind ?? ctx.room}${ctx.kind === "owner" && WAKE_OWNER_COMMAND && markers.get(ctx.room)?.waiting !== true ? " (learner)" : ""}`);
   const context = wakeContext(ctx);
-  const child = spawn(WAKE_COMMAND, {
+  // The owner room goes to the learner, unless the agent is waiting for its owner there: then the owner's
+  // reply belongs to a negotiation, and the answer in the bots room is the speaking model's.
+  const learner = ctx.kind === "owner" && WAKE_OWNER_COMMAND && markers.get(ctx.room)?.waiting !== true;
+  const command = learner ? WAKE_OWNER_COMMAND : WAKE_COMMAND;
+  const child = spawn(command, {
     shell: true,
     stdio: ["ignore", "inherit", "inherit"],
     env: {

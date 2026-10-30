@@ -10,7 +10,7 @@ It is a conversation in the person's language, one question at a time, not a for
 2. Read the five files as they are. They may already be filled: the person may be running this again to give the agent more or to change something. Keep what is there unless the person changes it. Read `instructions.md` too, so you know what the agent is told in every room; never change it, `update` replaces it.
 3. Check whether the package's recall is there, `~/.deloop/app/recall/recall.sh`. If it is not, write the paths into `archive.md` in step 3 and tell the person the index comes with the next update of the connector (`npx github:552020/deloop-connector update`).
 4. Do not read, open or mention anything else under `~/.deloop`. `connector.json`, `session.json` and `crypto/` are the bot's account, session and keys, and `app/` is the package; you never need them, except to run `~/.deloop/app/recall/recall.sh` in step 3.
-5. Say in three sentences what will happen: you ask who they are; you ask which of their archives the agent may have, and you index them here; you ask what of it the agent may say in Deloop and to whom; you write the files, show them, and they confirm.
+5. Say in three sentences what will happen: you ask who they are; you look at what this computer can carry, ask which of their archives the agent may have, and index them here; you ask what of it the agent may say in Deloop and to whom; you write the files, show them, and they confirm.
 
 ## How the files work
 
@@ -41,9 +41,19 @@ Enough for an introduction: name, city, languages, what they do, in one sentence
 
 ### 3. What the agent gets: the archives
 
+First the computer, not the person: run `sh ~/.deloop/app/recall/recall.sh machine`. It reads the chip, the memory, the free disk and whether Ollama is installed, and gives one sentence (`sentence`) and a `choice`. This decides who reads the archive: a model on this computer (the learner), or the cloud model you are.
+
+- `local`: say the sentence. The learner will read the mail here and nothing of it leaves.
+- `ask` (a small computer, 8 GB): say the sentence and let the person choose: the small model here, with poorer proposals, or the cloud model, which then reads what it searches in their mail. Either is a good answer.
+- `cloud` (too small, or the disk too full): say the sentence. The archive can still be indexed here, but it is read through the cloud model; or the person sets the agent up on a machine they rent under their own account, later.
+
+If the learner is chosen and Ollama is missing, ask before installing it: on macOS `brew install ollama` where Homebrew is there, otherwise the app from https://ollama.com/download; on Linux the script from ollama.com. Ollama must be running (the app, or `ollama serve`). Then, with a yes, `ollama pull <model>` with the `model` the survey named: a download of `model_gb` GB, once. Then `node ~/.deloop/app/cli.mjs learner on <model>`: from then on the agent's owner room runs on that model, on this computer, except when the agent is waiting for the person's answer in a negotiation, which stays with the speaking model. `learner off` undoes it.
+
+With the learner on, you do not read the archive yourself in this conversation: no `sh ~/.deloop/app/recall/recall.sh search`, no opening of files the person names. You report counts and dates, and the proposals in step 4 come from the learner.
+
 Ask, one archive at a time, whether the agent may have it, and where it is on this computer. Each is a yes or a no; a no is as good an answer as a yes, and the person can come back to it later.
 
-- Mail: the account, and where its mail lives on this computer, for instance the mail app's store (on macOS `~/Library/Mail`, on Linux a Thunderbird profile) or an export (`.mbox`). The indexer reads the local store; nothing is fetched from a server, and no mail leaves the computer. On macOS the mail store is closed to programs until the person gives the terminal, or the editor Claude Code runs in, Full Disk Access (System Settings, Privacy & Security); if a listing of `~/Library/Mail` is refused, say so and let them decide.
+- Mail: the account, and where its mail lives on this computer, for instance the mail app's store (on macOS `~/Library/Mail`, on Linux a Thunderbird profile) or an export (`.mbox`). The indexer reads the local store; nothing is fetched from a server. Say who reads it, as chosen above: with the learner, nothing of the mail leaves the computer; with the cloud model, "what your agent searches in your mail, mostly other people's words, goes to the model's provider when it reads it with you". On macOS the mail store is closed to programs until the person gives the terminal, or the editor Claude Code runs in, Full Disk Access (System Settings, Privacy & Security); if a listing of `~/Library/Mail` is refused, say so and let them decide.
 - Documents: folders, named by path. Ask what is in a folder before taking it; a work folder with clients' material stays out, and so does anything the person hesitates over.
 - Calendar: the app's data, or an export (`.ics`), or nothing: then the person tells the agent their hours in the next step.
 - Finances: a folder of statements and invoices, or a few sentences in the next step, or nothing.
@@ -56,7 +66,7 @@ Then build the index, if the recall is there. The first time, `sh ~/.deloop/app/
 
 ### 4. The catalogue, from the archives
 
-Now fill the categories, with the archives as the source and the person as the judge. For each category, propose what the archive shows and ask the person to confirm, correct or strike it: working hours from the calendar's pattern; projects and employer from the documents and the mail; places from the addresses; preferences from what the person tells you. Write each level as sentences the agent can say as they stand, in the first language, and stop at the level the person stops at. Where an archive holds the full values, write an `archive:` line under the category pointing to it, so that the agent, alone with its person, can look things up there later.
+Now fill the categories, with the archives as the source and the person as the judge. With the learner on, run `sh ~/.deloop/app/recall/recall.sh propose <model>` (once the index is built): the model on this computer reads the passages for each category and gives one JSON line per category with a proposed text per level, or null, and a `basis`; you see only the proposals, never the passages. Without the learner, search the index yourself with `sh ~/.deloop/app/recall/recall.sh search "…"`. Either way, for each category, propose what the archive shows and ask the person to confirm, correct or strike it: working hours from the calendar's pattern; projects and employer from the documents and the mail; places from the addresses; preferences from what the person tells you. Write each level as sentences the agent can say as they stand, in the first language, and stop at the level the person stops at. Where an archive holds the full values, write an `archive:` line under the category pointing to it, so that the agent, alone with its person, can look things up there later.
 
 Nothing goes into the catalogue that the person did not confirm. A category the person leaves alone stays `not given`.
 

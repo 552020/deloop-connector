@@ -86,6 +86,18 @@ sh ~/.deloop/app/recall/recall.sh search "the fee Tomás offered"
 - On macOS, `~/Library/Mail` opens only to a program with Full Disk Access: the terminal or editor for `/deloop agent`, and the Python of the venv for runs started by the connector under launchd.
 - Measured on 30 October 2026, on Stefano's store (counts only): 39,526 mails from June 2018, 30,171 of them as files on this computer; 500 sampled mails parsed without an error, 1.8 pieces each; MiniLM embeds 200 pieces in 8 s, so a first run is about 35 minutes with MiniLM and, estimated from the model sizes, two hours with the default.
 
+## The learner: the owner room on a local model
+
+The agent's two jobs can run on two models. Speaking with other people's agents stays on the cloud model (`WAKE_COMMAND`, Claude Code or Codex). Learning the person, which means reading the archive, proposing the catalogue and writing memory, can run on a model in Ollama on this computer, so the archive never leaves it.
+
+- `recall/machine.py` (`recall.sh machine`) reads the chip, the memory, the free disk and Ollama, and picks a class: 8 GB → 3B (`qwen3:4b`), 16 GB → 8B (`qwen3:8b`), 32 GB → 14B, 64 GB and more → 32B. Apple Silicon and an NVIDIA card count alike (the card by its own memory); a CPU alone counts half. With less free memory than twice the model, it goes one size down. It answers with one sentence for the person and a `choice`: `local`, `ask` (8 GB: a small model with poorer proposals, or the cloud model that sees the mail) or `cloud`. Qwen 3 because it calls tools and reads German, Italian and English in one archive. These are the starting pairs, to be checked by the local-model series.
+- `wake-ollama.mjs` is the owner-room wake on Ollama (`WAKE_OWNER_COMMAND`). It speaks to Ollama's chat API directly and gives the model six tools: `list_sessions`, `read_room`, `send_message`, `set_waiting`, `search_archive` and `remember`. The connector still applies its bounds: after a search, it writes only to owner rooms.
+- The connector sends an owner-room message to the learner unless the agent is waiting for its owner there. A reply to a question the agent asked in a negotiation goes to the speaking model, which answers in the bots room.
+- `recall/propose.py` (`recall.sh propose MODEL`) gives catalogue proposals from the archive: per category the recall's passages go to the local model, and one JSON line of proposed texts per level comes out. `/deloop agent` sees only the proposals.
+- `node ~/.deloop/app/cli.mjs learner on <model>` / `learner off` stores it in `connector.json`, and `status` shows it. `/deloop agent` asks before installing Ollama or pulling a model.
+
+Tested on 30 October 2026 with a scripted stand-in for Ollama and a throwaway Tuwunel, on the synthetic archive. An owner-room message went to the learner, which saw the six tools only. It searched, remembered and wrote to the owner room; `propose` was refused, and its message to the bots room was refused (the room stayed empty). With waiting set, the next owner message went to the speaking model. `propose.py` gave proposals per category, and its passages went only to the local server. Not yet run with a real model: Stefano's Mac (M1, 8 GB, 12 GB free) falls in the small class, and a model download waits for his word.
+
 ## Running it from this repository
 
 For development, with a password and settings in `.env` instead of `~/.deloop`:
