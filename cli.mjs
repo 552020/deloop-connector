@@ -17,7 +17,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = join(homedir(), ".deloop", "app");
 const DIR = join(homedir(), ".deloop");
 const CONFIG = join(DIR, "connector.json");
-// The agent's directory (docs/template.md), made from template/agent at setup; update replaces only its instructions.md.
+// The agent's directory (docs/agent.md), made from template/agent at setup; update replaces only its instructions.md.
 const AGENT = join(DIR, "agent");
 
 async function makeAgent(name) {

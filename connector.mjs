@@ -24,7 +24,7 @@ const SESSION_FILE = process.env.CONNECTOR_SESSION_FILE || new URL("./.session.j
 const CRYPTO_DIR = process.env.CONNECTOR_CRYPTO_DIR || new URL("./.crypto", import.meta.url).pathname;
 // Upper bound on wakes per run of the connector, as a guard against two bots answering each other forever.
 const WAKE_MAX = Number(process.env.WAKE_MAX || Infinity);
-// The agent's directory (docs/template.md): catalogue, mandate, memory. Without it, WAKE_CONTEXT as given.
+// The agent's directory (docs/agent.md): catalogue, mandate, memory. Without it, WAKE_CONTEXT as given.
 const AGENT_DIR = process.env.DELOOP_AGENT_DIR || "";
 let wakes = 0;
 

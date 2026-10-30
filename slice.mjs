@@ -1,4 +1,4 @@
-// What of the agent's directory (docs/template.md) reaches a wake. For the bots and people rooms, the slice:
+// What of the agent's directory (docs/agent.md) reaches a wake. For the bots and people rooms, the slice:
 // catalogue.md cut to the lowest level mandate.md grants to anyone else present, in code and with no
 // model. It fails closed: a category it cannot read is not carried. For the owner room, the whole directory.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
