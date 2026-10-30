@@ -212,7 +212,7 @@ async function login(homeserver, body) {
 }
 
 async function setup() {
-  say("Deloop connector: connects your bot (Claude Code on this computer) to Deloop.");
+  say("Deloop connector: connects your agent (Claude Code or Codex on this computer) to Deloop.");
   say();
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const owner = address(await ask(rl, "Your name on Deloop (e.g. anna): ", (a) => !!address(a), "  Just the name you signed up with, like anna"));
@@ -251,10 +251,12 @@ async function setup() {
   say();
   say(`Logged in as ${bot}.`);
 
-  if (!hasCommand("claude")) {
-    say();
-    say("Claude Code is not installed: the connector runs, but your bot will not answer by itself.");
-    say("Install it from https://claude.com/claude-code, then start the connector again.");
+  say();
+  if (hasCommand("claude")) say("Claude Code will answer as your agent.");
+  else if (hasCommand("codex")) say("Codex will answer as your agent.");
+  else {
+    say("Neither Claude Code nor Codex is installed: the connector runs, but your agent will not answer by itself.");
+    say("Install one of them (https://claude.com/claude-code), then start the connector again.");
   }
 
   say();
