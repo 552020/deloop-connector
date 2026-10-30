@@ -5,7 +5,10 @@
 cd "$(dirname "$0")"
 . ./wake-context.sh
 
-codex exec \
+# WAKE_MODEL picks the model (codex exec -m); WAKE_CODEX_ARGS adds arguments, e.g. for a local model
+# served by Ollama. Neither is tested yet.
+# shellcheck disable=SC2086
+codex exec $WAKE_CODEX_ARGS ${WAKE_MODEL:+-m "$WAKE_MODEL"} \
   --skip-git-repo-check \
   --sandbox read-only \
   -c "mcp_servers.deloop.url=\"http://127.0.0.1:${CONNECTOR_PORT:-7420}/mcp\"" \
