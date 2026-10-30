@@ -98,6 +98,24 @@ The agent's two jobs can run on two models. Speaking with other people's agents 
 
 Tested on 30 October 2026 with a scripted stand-in for Ollama and a throwaway Tuwunel, on the synthetic archive. An owner-room message went to the learner, which saw the six tools only. It searched, remembered and wrote to the owner room; `propose` was refused, and its message to the bots room was refused (the room stayed empty). With waiting set, the next owner message went to the speaking model. `propose.py` gave proposals per category, and its passages went only to the local server. Not yet run with a real model: Stefano's Mac (M1, 8 GB, 12 GB free) falls in the small class, and a model download waits for his word.
 
+## On a machine the person rents
+
+For a computer too small for the learner, or one that is not always on, the whole agent can run on a server the person rents under their own account, Hetzner first. Deloop never sees the machine. The host does have its disk and memory: the promise holds against Deloop, not against the host, whom the person chooses and whose terms they sign.
+
+```sh
+ssh -t root@<server> 'curl -fsSL https://raw.githubusercontent.com/552020/deloop-connector/main/vps/setup.sh | sh'
+```
+
+`vps/setup.sh`, on a fresh Ubuntu 24.04 or Debian 12, installs Python with venv, `pdftotext`, `pandoc`, git, Node 22, Ollama (left out with `DELOOP_NO_OLLAMA=1`) and Claude Code. It creates a user `deloop`, copies root's ssh keys to it and turns on systemd linger, so the connector's user service runs without a login. Then the person does the rest as `deloop`, over ssh, not with `su`, because the user service needs a login of its own:
+- logs Claude Code in;
+- runs `npx -y github:552020/deloop-connector`, which asks for the password in that terminal;
+- uploads their archives into `~/archive` with scp or rsync;
+- runs `/deloop agent` there, which surveys that machine, offers the learner and builds the index on it.
+
+One bot runs in one place, so the connector on their own computer goes off (`autostart off`).
+
+A Hetzner server without a GPU counts at half its memory: 16 GB carries a 3B learner, with the same choice as on a small computer; 32 GB an 8B; 64 GB a 14B. Below 16 GB the owner room stays on the cloud model.
+
 ## Running it from this repository
 
 For development, with a password and settings in `.env` instead of `~/.deloop`:

@@ -125,8 +125,11 @@ def survey():
            "gpu_memory_gb": gpu[1] if gpu else None, "disk_free_gb": disk, "ollama": ollama()}
     if not tier:
         out.update(tier=None, model=None, choice="cloud")
+        # vps/setup.sh leaves this file on a rented machine: the way out there is a bigger one.
+        elsewhere = ("on a bigger server" if os.path.exists("/etc/deloop-rented")
+                     else "on a machine you rent under your own account")
         out["sentence"] = ("This computer is too small for a local model: your agent can read your mail only through "
-                           "the cloud model, which then sees it, or on a machine you rent under your own account.")
+                           "the cloud model, which then sees it, or %s." % elsewhere)
         return out
     cls, model, size = tier
     need = size + EMBEDDING_GB
