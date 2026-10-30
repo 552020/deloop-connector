@@ -9,6 +9,9 @@ cd "$(dirname "$0")"
 export USER="${USER:-$(id -un)}"
 . ./wake-context.sh
 
+# The archive and memory tools are for the owner room only; the connector refuses them elsewhere as well.
+[ "$DELOOP_KIND" = owner ] && hidden="" || hidden="mcp__deloop__search_archive mcp__deloop__remember"
+
 out=$(claude -p "New message in Matrix room $DELOOP_ROOM (session: ${DELOOP_SESSION:-none}, kind: ${DELOOP_KIND:-plain room}) from $DELOOP_SENDER:
 
 $DELOOP_BODY
@@ -20,6 +23,7 @@ Read the room with the deloop tools and reply if a reply is due." \
   --mcp-config "{\"mcpServers\":{\"deloop\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:${CONNECTOR_PORT:-7420}/mcp\"}}}" \
   --strict-mcp-config \
   --allowedTools "mcp__deloop__*" \
+  ${hidden:+--disallowedTools $hidden} \
   --output-format json)
 rm -f "$WAKE_INSTRUCTIONS"
 

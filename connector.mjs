@@ -1,9 +1,9 @@
 import { createServer } from "node:http";
-import { readFile, writeFile, rm } from "node:fs/promises";
+import { readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname as dirnameOf, join as joinPath } from "node:path";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -258,6 +258,11 @@ async function sendMessage(roomId, text, extra = {}) {
 // WAKE_COMMAND on new messages: one run at a time, further messages during a run cause one more run.
 let waking = false;
 let pending = null;
+// The kind of room the running wake came from, and whether it has read the archive. The archive and
+// memory tools answer only an owner-room wake (or no wake: the owner's own Claude Code); a wake that has
+// read the archive may write only to owner rooms, so nothing of it reaches others but through the catalogue.
+let wakeKind = null;
+let archiveRead = false;
 
 // What of the agent's directory this wake carries, as a file for wake-context.sh: from the owner room the
 // whole directory; from any other room the slice for the other people present (slice.mjs), cut here,
@@ -294,6 +299,8 @@ function wake(ctx) {
     return;
   }
   waking = true;
+  wakeKind = ctx.kind ?? "plain";
+  archiveRead = false;
   wakes++;
   console.log(`Wake: ${ctx.sender} in ${ctx.kind ?? ctx.room}`);
   const context = wakeContext(ctx);
@@ -314,6 +321,8 @@ function wake(ctx) {
   child.on("exit", () => {
     if (context) rm(context, { force: true });
     waking = false;
+    wakeKind = null;
+    archiveRead = false;
     if (pending) {
       const next = pending;
       pending = null;
@@ -509,7 +518,11 @@ function mcpServer() {
   server.registerTool(
     "send_message",
     { description: "Send a plain text message to a room.", inputSchema: { ...where, text: z.string() } },
-    async (args) => json({ event_id: await sendMessage(target(args), args.text) }),
+    async (args) => {
+      const rid = target(args);
+      afterArchive(rid);
+      return json({ event_id: await sendMessage(rid, args.text) });
+    },
   );
 
   server.registerTool(
@@ -527,6 +540,7 @@ function mcpServer() {
     "open_side_session",
     { description: "Ask your owner's app to open a side session with one person's agent, in their one-to-one chat, on one topic: for something released only to that counterpart. Sends the request to the owner room and sets waiting; once the app has opened it, the connector announces it in this session's bots room and you continue there. Never write such a value in a shared room.", inputSchema: { session: z.string().describe("The session you are in now"), with: z.string().describe("The person's Matrix address, e.g. @jonas:deloop.website"), topic: z.string() } },
     async ({ session: s, with: who, topic }) => {
+      afterArchive(roomFor(s, "bots")); // its topic is announced in the bots room
       const rid = roomFor(s, "owner");
       const event_id = await sendMessage(rid, `Continuing with ${who}'s agent on: ${topic}.`, { "xyz.deloop.side": { with: who, topic, from: s } });
       await sendMessage(rid, "Waiting for you.", { "xyz.deloop.waiting": true });
@@ -540,6 +554,7 @@ function mcpServer() {
     { description: "Post a proposal in the session's bots room. Returns its id, which answers refer to.", inputSchema: { session: z.string(), text: z.string() } },
     async ({ session: s, text }) => {
       const id = randomUUID();
+      afterArchive(roomFor(s, "bots"));
       const event_id = await sendMessage(roomFor(s, "bots"), text, { "xyz.deloop.proposal": { id } });
       return json({ proposal: id, event_id });
     },
@@ -549,6 +564,7 @@ function mcpServer() {
     "answer",
     { description: "Post this bot's answer to a proposal in the bots room, after the owner has decided in the owner room.", inputSchema: { session: z.string(), proposal: z.string(), accepted: z.boolean(), text: z.string() } },
     async ({ session: s, proposal, accepted, text }) => {
+      afterArchive(roomFor(s, "bots"));
       const event_id = await sendMessage(roomFor(s, "bots"), text, { "xyz.deloop.answer": { proposal, accepted } });
       return json({ event_id });
     },
@@ -569,7 +585,95 @@ function mcpServer() {
     },
   );
 
+  server.registerTool(
+    "search_archive",
+    { description: "Owner room only. Search what your owner gave you, the folders and mail named in archive.md, by meaning and by words; or, with path, read one hit in full (start for one message of an mbox). Only what lies under archive.md's lines is served. After this, the wake writes only to the owner room.", inputSchema: { query: z.string().optional(), k: z.number().int().min(1).max(20).default(8), path: z.string().optional(), start: z.number().int().optional() } },
+    async ({ query, k, path, start }) => {
+      const refused = archiveRefused();
+      if (refused) return json({ ok: false, error: refused });
+      if (!query && !path) return json({ ok: false, error: "Give a query, or the path of a hit." });
+      archiveRead = true;
+      const args = path ? ["--show", path, ...(start ? [String(start)] : []), "--json"] : [query, String(k), "--json"];
+      try {
+        return json(await recall(args));
+      } catch (e) {
+        return json({ ok: false, error: e.message });
+      }
+    },
+  );
+
+  server.registerTool(
+    "remember",
+    { description: "Owner room only. Write one fact you learned about your owner into memory/: one file per fact, one index line in MEMORY.md. Only what your owner said, or an inference they confirmed. The same title replaces that memory.", inputSchema: { title: z.string().min(3).max(80), text: z.string().min(1).max(4000), hook: z.string().max(150).describe("One line for the index: what the memory holds") } },
+    async ({ title, text, hook }) => {
+      const refused = archiveRefused();
+      if (refused) return json({ ok: false, error: refused });
+      return json(await remember(title, text, hook));
+    },
+  );
+
   return server;
+}
+
+// ---------- Archive and memory ----------
+
+// A wake that has read the archive writes only to owner rooms; the connector's own messages are not bound.
+function afterArchive(roomId) {
+  if (waking && archiveRead && stateOf(roomId, "xyz.deloop.room")?.kind !== "owner")
+    throw new Error("This wake has read the archive: it writes only to the owner room. What may reach others is in the catalogue.");
+}
+
+function archiveRefused() {
+  if (!hasFolder(AGENT_DIR)) return "This bot has no agent directory.";
+  if (waking && wakeKind !== "owner") return "Only in the owner room: the archive and memory never reach a room with others.";
+  return null;
+}
+
+// recall/recall.py with the recall's own Python; the bound to archive.md is checked there on every call.
+function recall(args) {
+  const home = dirnameOf(AGENT_DIR);
+  const python = joinPath(home, "recall", "venv", "bin", "python");
+  if (!existsSync(python)) return Promise.reject(new Error("The archive has no index yet: /deloop agent builds it."));
+  const script = new URL("./recall/recall.py", import.meta.url).pathname;
+  return new Promise((resolve, reject) =>
+    execFile(python, [script, ...args], { env: { ...process.env, DELOOP_HOME: home, MATRIX_PASSWORD: "" }, timeout: 120000, maxBuffer: 8 << 20 }, (err, out) => {
+      if (err) return reject(new Error("The index could not be searched."));
+      try {
+        resolve(JSON.parse(out) ?? { ok: false, error: "Not in the archive." });
+      } catch {
+        reject(new Error("The index gave no answer."));
+      }
+    }),
+  );
+}
+
+// One file per memory, its name made here from the title, inside memory/ and nowhere else.
+async function remember(title, text, hook) {
+  const slug = title.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+  if (!slug) return { ok: false, error: "The title needs letters or digits." };
+  const dir = joinPath(AGENT_DIR, "memory");
+  await mkdir(dir, { recursive: true });
+  const file = `${slug}.md`;
+  const clean = (t) => t.replace(/[\r\n]+/g, " ").trim();
+  const date = new Date().toISOString().slice(0, 10);
+  await writeFile(joinPath(dir, file), `# ${clean(title)}\n\n${text.trim()}\n\nWritten by the agent in the owner room, ${date}.\n`, { mode: 0o600 });
+  const index = joinPath(dir, "MEMORY.md");
+  let lines = [];
+  try {
+    lines = (await readFile(index, "utf8")).split("\n");
+  } catch {
+    lines = ["# Memory", ""];
+  }
+  const line = `- [${clean(title).replace(/[\[\]]/g, "")}](${file}) — ${clean(hook)}`;
+  const at = lines.findIndex((l) => l.includes(`](${file})`));
+  if (at >= 0) lines[at] = line;
+  else {
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    if (lines.length && !lines[lines.length - 1].startsWith("- ")) lines.push("");
+    lines.push(line, "");
+  }
+  await writeFile(index, lines.join("\n"));
+  return { ok: true, file: `memory/${file}`, replaced: at >= 0 };
 }
 
 // ---------- HTTP ----------

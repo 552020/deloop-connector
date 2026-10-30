@@ -20,7 +20,7 @@ ARCHIVE = os.path.join(DELOOP, "agent", "archive.md")
 DATA = os.path.join(DELOOP, "recall")
 DB_PATH = os.path.join(DATA, "index.db")
 LOCK_PATH = DB_PATH + ".lock"
-SCHEMA_VERSION = "deloop-1"
+SCHEMA_VERSION = "deloop-2"  # raise when the text a file gives changes, so every index is rebuilt
 
 # Multilingual is the requirement, not the size. fastembed offers three: MiniLM-L12 (0.22 GB),
 # mpnet-base (1.0 GB, the default) and e5-large (2.24 GB, HER's); DELOOP_RECALL_MODEL picks another.
