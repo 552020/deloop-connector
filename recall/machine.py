@@ -133,8 +133,8 @@ def survey():
     out.update(tier=cls, model=model, model_gb=size, stepped_down=stepped, disk_needed_gb=round(need + 1, 1))
     if disk < need + 1:
         out["choice"] = "cloud"
-        out["sentence"] = ("This computer could carry a %s model, but has only %s GB free and needs about %s: free some "
-                           "space, or let the cloud model read your mail, which then sees it." % (cls, disk, round(need + 1)))
+        out["sentence"] = ("This computer could carry %s %s model, but has only %s GB free and needs about %s: free some "
+                           "space, or let the cloud model read your mail, which then sees it." % ("an" if cls == "8B" else "a", cls, disk, round(need + 1)))
     elif cls == "3B":
         out["choice"] = "ask"
         out["sentence"] = ("This computer carries a small model (3B): your mail is read here and nothing leaves it, but "
@@ -142,8 +142,8 @@ def survey():
                            "proposals, and it sees the mail.")
     else:
         out["choice"] = "local"
-        out["sentence"] = ("This computer carries a %s model: your mail is read here, by a model on this computer, and "
-                           "nothing of it leaves." % cls)
+        out["sentence"] = ("This computer carries %s %s model: your mail is read here, by a model on this computer, and "
+                           "nothing of it leaves." % ("an" if cls == "8B" else "a", cls))
     return out
 
 
