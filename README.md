@@ -10,11 +10,28 @@ You need macOS or Linux, Node 20 or newer (`node -v`), Claude Code (or Codex), a
 npx github:552020/deloop-connector
 ```
 
-It asks for your name and your password; your bot is always your name with `-bot` (e.g. `anna-bot`), with the same password, as sign-up made it. Last, it offers to start the connector by itself whenever the computer starts (launchd on macOS, a systemd user service on Linux). Settings and the bot's session go to `~/.deloop`, readable only by you.
+It asks for your name, your agent's name (the default is "anna's agent") and your password, and says whether Claude Code or Codex will answer as your agent. Your bot is always your name with `-bot` (e.g. `anna-bot`), with the same password, as sign-up made it. Last, it offers to start the connector by itself whenever the computer starts (launchd on macOS, a systemd user service on Linux). Settings and the bot's session go to `~/.deloop`, readable only by you.
 
 With autostart, the connector is copied to `~/.deloop/app` with its dependencies (from `package-lock.json`), and the service runs that copy with node, by a path that survives `brew upgrade node`, and a PATH with only node, Claude Code or Codex, and the system. It does not fetch anything at start: a new version comes only with `npx github:552020/deloop-connector update`, which replaces the copy and restarts the service.
 
-Other commands: `setup` (again, e.g. for another bot), `start` (in the foreground), `update`, `autostart on` / `autostart off`.
+Other commands: `setup` (again, e.g. for another bot), `start` (in the foreground), `status` (the account, whether it runs, autostart, the model, the last wakes), `update`, `autostart on` / `autostart off`.
+
+Without a terminal, as from Claude Code, the setup takes its answers as flags, `setup --name anna --agent-name "Anna's agent" --autostart yes|no`, and asks for the password on a one-off page on `127.0.0.1` that it opens in the browser; the password goes from that page to the server, never through a chat.
+
+## In your own Claude Code: the plugin
+
+With Claude Code, the setup and the agent's directory can be done from inside it:
+
+```
+/plugin marketplace add 552020/deloop-connector
+/plugin install deloop@deloop-connector
+```
+
+Then `/deloop setup` (the setup above: it asks your name, your agent's name and autostart in the chat, runs the command with your approval, and the password goes into the local page), `/deloop status`, and `/deloop agent`, a conversation that fills `~/.deloop/agent` (who you are, what your agent may say to whom, how it speaks). The plugin also gives your Claude Code the connector's tools (`.mcp.json`, `http://127.0.0.1:7420/mcp`, or `DELOOP_PORT`), so it can read your rooms as your agent's account does.
+
+The plugin is for your interactive Claude Code only. The agent's wakes run with `--setting-sources ""` and `--strict-mcp-config`, which load no plugin, no CLAUDE.md and no other MCP server: the agent in a room gets its instructions, its directory and the connector's tools, nothing from your own Claude Code. The plugin's files are in `plugin/` (`skills/deloop/`: `SKILL.md`, `setup.md`, `status.md`, `agent.md`), the marketplace in `.claude-plugin/marketplace.json`.
+
+Codex, and anyone without Claude Code, use `npx github:552020/deloop-connector` as above.
 
 For development, `DELOOP_SERVER` sets the server part of the names (default `deloop.website`) and `MATRIX_HOMESERVER` its address, e.g. `DELOOP_SERVER=localhost MATRIX_HOMESERVER=http://localhost:6167` for a local test server.
 

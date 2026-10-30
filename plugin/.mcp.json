@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "deloop": {
+      "type": "http",
+      "url": "http://127.0.0.1:${DELOOP_PORT:-7420}/mcp"
+    }
+  }
+}

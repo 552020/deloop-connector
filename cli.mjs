@@ -200,6 +200,41 @@ async function browserLogin(homeserver) {
   return login(homeserver, { type: "m.login.token", token });
 }
 
+// The password on a one-off local page, when there is no terminal to type it in (setup from Claude Code):
+// it goes from the browser to this process and to our server, never through a chat.
+async function passwordPage(homeserver, bot) {
+  const page = (note = "") => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Deloop connector</title>
+<body style="font:17px system-ui;margin:40px;max-width:none"><p>Your password on Deloop, for your agent ${bot}.</p>
+<form method="post"><input type="password" name="password" autofocus required style="font:inherit;padding:6px 8px">
+<button style="font:inherit;padding:6px 12px">Log in</button></form><p style="color:#b00">${note}</p></body>`;
+  let open;
+  const result = new Promise((resolve) => {
+    const server = createServer((req, res) => {
+      if (req.method !== "POST") return res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(page());
+      let body = "";
+      req.on("data", (d) => (body += d)).on("end", async () => {
+        const password = new URLSearchParams(body).get("password") ?? "";
+        try {
+          const session = await login(homeserver, { type: "m.login.password", identifier: { type: "m.id.user", user: bot }, password });
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end("<p style='font:18px system-ui;margin:40px'>Logged in. You can close this window.</p>");
+          server.close();
+          resolve(session);
+        } catch (err) {
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(page(/M_FORBIDDEN/.test(err.message) ? "Wrong password. Once more." : `Login failed: ${err.message}`));
+        }
+      });
+    });
+    server.listen(0, "127.0.0.1", () => {
+      open = `http://127.0.0.1:${server.address().port}/`;
+      say(`Type your password on this page, which opens in your browser: ${open}`);
+      try {
+        execFileSync(platform() === "darwin" ? "open" : "xdg-open", [open], { stdio: "ignore" });
+      } catch {}
+    });
+  });
+  return result;
+}
+
 async function login(homeserver, body) {
   const res = await fetch(`${homeserver}/_matrix/client/v3/login`, {
     method: "POST",
@@ -214,13 +249,18 @@ async function login(homeserver, body) {
 async function setup() {
   say("Deloop connector: connects your agent (Claude Code or Codex on this computer) to Deloop.");
   say();
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const owner = address(await ask(rl, "Your name on Deloop (e.g. anna): ", (a) => !!address(a), "  Just the name you signed up with, like anna"));
+  const terminal = process.stdin.isTTY && !flags.name;
+  if (!terminal && !address(flags.name ?? "")) {
+    say("Without a terminal, give the name: setup --name anna [--agent-name \"Anna's agent\"] [--autostart yes|no]");
+    process.exit(1);
+  }
+  const rl = terminal ? createInterface({ input: process.stdin, output: process.stdout }) : null;
+  const owner = terminal ? address(await ask(rl, "Your name on Deloop (e.g. anna): ", (a) => !!address(a), "  Just the name you signed up with, like anna")) : address(flags.name);
   // Sign-up makes both accounts with one name and one password: the bot is always name-bot.
   const bot = address(`${owner.slice(1, owner.indexOf(":"))}-bot`);
   const person = owner.slice(1, owner.indexOf(":"));
-  const name = existsSync(AGENT) ? null : (await ask(rl, `Your agent's name, shown in the chat (Enter for "${person}'s agent"): `)) || `${person}'s agent`;
-  rl.close();
+  const name = existsSync(AGENT) ? null : (terminal ? await ask(rl, `Your agent's name, shown in the chat (Enter for "${person}'s agent"): `) : flags["agent-name"]) || `${person}'s agent`;
+  rl?.close();
   if (name !== null) await makeAgent(name);
 
   const homeserver = process.env.MATRIX_HOMESERVER || (await homeserverOf(bot));
@@ -235,6 +275,8 @@ async function setup() {
     try {
       session = flows.includes("m.login.sso")
         ? await browserLogin(homeserver)
+        : !terminal
+        ? await passwordPage(homeserver, bot)
         : await login(homeserver, { type: "m.login.password", identifier: { type: "m.id.user", user: bot }, password: await askHidden("Your password: ") });
     } catch (err) {
       say(/M_FORBIDDEN/.test(err.message) ? "Wrong name or password. Once more." : `Login failed: ${err.message.replace(/\.$/, "")}. Once more.`);
@@ -260,9 +302,12 @@ async function setup() {
   }
 
   say();
-  const rl2 = createInterface({ input: process.stdin, output: process.stdout });
-  const auto = (await rl2.question("Start the connector by itself whenever this computer starts? [Y/n] ")).trim().toLowerCase();
-  rl2.close();
+  let auto = (flags.autostart ?? "").toLowerCase();
+  if (terminal) {
+    const rl2 = createInterface({ input: process.stdin, output: process.stdout });
+    auto = (await rl2.question("Start the connector by itself whenever this computer starts? [Y/n] ")).trim().toLowerCase();
+    rl2.close();
+  }
   if (auto === "" || auto.startsWith("y")) {
     await install();
     await autostart(true);
@@ -348,6 +393,29 @@ async function cryptoLibrary(base = HERE) {
   execFileSync(process.execPath, ["download-lib.js"], { cwd: pkg, stdio: "inherit" });
 }
 
+// Who the connector is, whether it runs, its last wakes: for the person, or their Claude Code.
+async function status() {
+  const config = await readJson(CONFIG);
+  const session = await readJson(SESSION);
+  if (!config || !session) return say(`Not set up yet: run npx ${PACKAGE}`);
+  say(`Person: ${config.owner}`);
+  try {
+    const res = await fetch(`${config.homeserver}/_matrix/client/v3/account/whoami`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+    say(`Agent's account: ${res.ok ? (await res.json()).user_id + ", logged in" : `${config.bot}, not logged in (${res.status}): set it up again with npx ${PACKAGE} setup`}`);
+  } catch {
+    say(`Agent's account: ${config.bot}, server not reachable`);
+  }
+  const port = config.port ?? 7420;
+  const up = await fetch(`http://127.0.0.1:${port}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: "{}" }).then(() => true, () => false);
+  say(`Connector: ${up ? `running, MCP on http://127.0.0.1:${port}/mcp` : "not running"}`);
+  say(`Autostart: ${existsSync(PLIST) || existsSync(UNIT) ? "on" : existsSync(OLD_PLIST) || existsSync(OLD_UNIT) ? `the old service of the bridge: run npx ${PACKAGE} update` : "off"}`);
+  say(`Model: ${hasCommand("claude") ? "Claude Code" : hasCommand("codex") ? "Codex" : "none installed, so the agent cannot answer"}`);
+  say(`Agent's directory: ${existsSync(AGENT) ? AGENT : "missing"}`);
+  const log = await readFile(LOG, "utf8").catch(() => "");
+  const wakes = log.split("\n").filter((l) => /^Wake/.test(l)).slice(-5);
+  say(wakes.length ? `Last wakes (${LOG}):\n  ${wakes.join("\n  ")}` : `No wakes in ${LOG} yet.`);
+}
+
 async function start() {
   const config = await readJson(CONFIG);
   if (!config || !existsSync(SESSION)) {
@@ -374,8 +442,12 @@ async function start() {
 }
 
 const [command, arg] = process.argv.slice(2);
+// Flags for a setup without a terminal (from Claude Code, through the plugin): --name, --agent-name, --autostart yes|no.
+const flags = Object.fromEntries(process.argv.slice(3).flatMap((a, i, all) => (a.startsWith("--") ? [[a.slice(2), all[i + 1] ?? ""]] : [])));
 if (command === "setup") {
   if (await setup()) await start();
+} else if (command === "status") {
+  await status();
 } else if (command === "start") {
   await start();
 } else if (command === "update") {
@@ -395,5 +467,5 @@ if (command === "setup") {
   else if ((await readJson(CONFIG)) && existsSync(SESSION)) await start();
   else if (await setup()) await start();
 } else {
-  say(`Usage: npx ${PACKAGE} [setup | start | update | autostart on|off]`);
+  say(`Usage: npx ${PACKAGE} [setup | start | status | update | autostart on|off]`);
 }

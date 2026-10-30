@@ -1,0 +1,14 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "deloop-connector",
+  "owner": { "name": "Deloop", "url": "https://deloop.website" },
+  "metadata": { "description": "Deloop in your own Claude Code: set up the connector, see its state, make your agent your own." },
+  "plugins": [
+    {
+      "name": "deloop",
+      "source": "./plugin",
+      "description": "Set up the Deloop connector (/deloop setup), see its state (/deloop status), and make your agent your own (/deloop agent). Your Claude Code also reads your Deloop rooms through the connector.",
+      "homepage": "https://deloop.website/join"
+    }
+  ]
+}
