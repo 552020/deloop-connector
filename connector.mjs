@@ -442,16 +442,22 @@ async function sideOpened(ownerRoom, answerId, { for: requestId, session: sideSe
     });
     await sendMessage(ownerRoom, "Carrying on.", { "xyz.deloop.waiting": false });
     noteMarker(ownerRoom, { "xyz.deloop.waiting": false });
-    // The side session's rooms may still be joining; wake the agent there a little later.
-    setTimeout(() => {
+    // The side session's rooms may still be joining: try every 10 seconds for a minute, then say so.
+    let tries = 0;
+    const timer = setInterval(() => {
       let bots;
       try {
         bots = roomFor(sideSession, "bots");
       } catch {
+        if (++tries >= 6) {
+          clearInterval(timer);
+          console.error(`Side session ${sideSession}: its bots room was not joined within a minute; no wake`);
+        }
         return;
       }
+      clearInterval(timer);
       wake({ room: bots, session: sideSession, kind: "bots", sender: process.env.DELOOP_OWNER ?? "", body: `The side session you asked for is open, with ${side.with}, on: ${side.topic}. Continue there.` });
-    }, 8000);
+    }, 10000);
   } catch (err) {
     console.error(`Side session ${sideSession}: ${err.message}`);
   }
