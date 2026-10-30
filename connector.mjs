@@ -1,8 +1,8 @@
 import { createServer } from "node:http";
 import { readFile, writeFile, rm } from "node:fs/promises";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join as joinPath } from "node:path";
+import { dirname as dirnameOf, join as joinPath } from "node:path";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -629,4 +629,16 @@ console.log(`Logged in as ${session.user_id}`);
 if (!session.device_id) session.device_id = (await api("GET", "/account/whoami")).device_id;
 crypto = await startCrypto({ api, userId: session.user_id, deviceId: session.device_id, dir: CRYPTO_DIR });
 http.listen(PORT, "127.0.0.1", () => console.log(`MCP on http://127.0.0.1:${PORT}/mcp`));
+startRecall();
 syncLoop();
+
+// The agent's recall (recall/): once it is installed, every start brings the index up to date with
+// archive.md, in the background; the run is the indexer's own and survives the connector.
+function startRecall() {
+  if (!AGENT_DIR) return;
+  const home = dirnameOf(AGENT_DIR);
+  if (!existsSync(joinPath(home, "recall", "venv", "bin", "python"))) return;
+  const script = new URL("./recall/recall.sh", import.meta.url).pathname;
+  spawn("/bin/sh", [script, "index"], { env: { ...process.env, DELOOP_HOME: home }, stdio: "ignore", detached: true }).unref();
+  console.log("Recall: updating the index in the background");
+}

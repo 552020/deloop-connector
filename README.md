@@ -63,6 +63,25 @@ One local process, `connector.mjs`, in plain Node:
 
 It stays dumb: it moves messages and state and judges nothing. What the bot may say, and when it needs its owner, is decided by the brain.
 
+## The recall: the agent's archive, indexed here
+
+`recall/` is HER's recall (her/lab/recall), packaged: an index over the paths in `~/.deloop/agent/archive.md` and nothing else, built on this computer. Text comes by code: Apple Mail's `.emlx`, `.eml`, mbox (Thunderbird's folders, exports), PDF (`pdftotext`), Word and RTF (`textutil` on macOS, `pandoc` on Linux), Markdown and text. It is cut into pieces of 280 words, then indexed by words (SQLite FTS5) and by meaning, with vectors from a small multilingual model run locally by fastembed: `paraphrase-multilingual-mpnet-base-v2` (1 GB) by default, `DELOOP_RECALL_MODEL` for MiniLM (0.22 GB) or `multilingual-e5-large` (2.24 GB). Search fuses the two by rank. Nothing leaves the computer except the model's one download.
+
+```sh
+sh ~/.deloop/app/recall/recall.sh install          # a Python venv in ~/.deloop/recall (python3 needed)
+sh ~/.deloop/app/recall/recall.sh survey ~/Library/Mail   # counts and dates, no contents
+sh ~/.deloop/app/recall/recall.sh index            # in the background; log in ~/.deloop/recall/index.log
+sh ~/.deloop/app/recall/recall.sh status           # done of total, files, chunks
+sh ~/.deloop/app/recall/recall.sh search "the fee Tomás offered"
+```
+
+`/deloop agent` runs these for the person. The index lives in `~/.deloop/recall`, outside `app/`, so `update` keeps it. It holds the texts it indexed: a second copy of the mail, in pieces, readable only by the user. Whoever deletes the agent's directory deletes `~/.deloop/recall` too.
+
+- The bound is in code, twice: the indexer reads only under the lines of `archive.md` and prunes what is no longer there; every search and every `--show` checks each hit against `archive.md` as it stands, so a line struck out is out at once, before the next run.
+- Updates: the connector starts an index run at every start, once the venv exists; a run reads only what changed. A nightly run would need a launchd or systemd job; not built, waiting for Stefano's yes.
+- On macOS, `~/Library/Mail` opens only to a program with Full Disk Access: the terminal or editor for `/deloop agent`, and the Python of the venv for runs started by the connector under launchd.
+- Measured on 30 October 2026, on Stefano's store (counts only): 39,526 mails from June 2018, 30,171 of them as files on this computer; 500 sampled mails parsed without an error, 1.8 pieces each; MiniLM embeds 200 pieces in 8 s, so a first run is about 35 minutes with MiniLM and, estimated from the model sizes, two hours with the default.
+
 ## Running it from this repository
 
 For development, with a password and settings in `.env` instead of `~/.deloop`:
