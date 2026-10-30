@@ -116,8 +116,15 @@ async function fetchTopics() {
     const events = await Promise.all((data?.chunk ?? []).map((ev) => clear(s.rooms.bots, ev)));
     // The first one this bot can read: a late member has no key for the first, but for its re-send.
     const e = events.find((ev) => ev.type === "m.room.message" && ev.content?.["xyz.deloop.topic"]);
-    if (e) topics.set(s.session, e.content.body);
+    if (e) noteTopic(s.session, e.content);
   }
+}
+
+// A side session's topic message also says which session it continues (protocol, Side sessions).
+const origins = new Map(); // session id -> the session it was opened from
+function noteTopic(sessionId, content) {
+  topics.set(sessionId, content.body);
+  if (typeof content["xyz.deloop.from"] === "string") origins.set(sessionId, content["xyz.deloop.from"]);
 }
 
 // Status and waiting are encrypted marker messages (docs/protocol.md): the latest bots-room message
@@ -132,7 +139,8 @@ function noteMarker(roomId, content) {
   markers.set(roomId, m);
 }
 
-const isMarker = (content) => content?.["xyz.deloop.status"] !== undefined || content?.["xyz.deloop.waiting"] !== undefined;
+// Markers are data, not turns: none of them wakes the agent (the side request, its answer and the announcement included).
+const isMarker = (content) => ["xyz.deloop.status", "xyz.deloop.waiting", "xyz.deloop.side", "xyz.deloop.side_opened"].some((k) => content?.[k] !== undefined);
 
 async function fetchMarkers() {
   for (const s of sessions()) {
@@ -166,6 +174,7 @@ function sessions() {
       topic: topics.get(id) ?? null,
       status: markers.get(roomIds.bots)?.status ?? "open",
       main: meta.main === true, // the group's main chat: the ongoing conversation, not a matter to settle
+      from: origins.get(id) ?? null, // a side session: the session it continues
       group: group ?? null,
       group_name: group ? stateOf(group, "m.room.name")?.name ?? null : null,
       rooms: roomIds,
@@ -203,6 +212,9 @@ async function readMessages(roomId, limit) {
       ...(e.content["xyz.deloop.topic"] && { topic: true }),
       ...(e.content["xyz.deloop.status"] !== undefined && { status: e.content["xyz.deloop.status"] }),
       ...(e.content["xyz.deloop.waiting"] !== undefined && { waiting: e.content["xyz.deloop.waiting"] }),
+      ...(e.content["xyz.deloop.side"] && { side: e.content["xyz.deloop.side"] }),
+      ...(e.content["xyz.deloop.side_opened"] && { side_opened: e.content["xyz.deloop.side_opened"] }),
+      ...(e.content["xyz.deloop.from"] && { from: e.content["xyz.deloop.from"] }),
       ...(e.content["xyz.deloop.proposal"] && { proposal: e.content["xyz.deloop.proposal"] }),
       ...(e.content["xyz.deloop.answer"] && { answer: e.content["xyz.deloop.answer"] }),
     }));
@@ -360,12 +372,13 @@ async function onEvent(roomId, event) {
   if (e.type !== "m.room.message") return;
   if (isMarker(e.content)) {
     noteMarker(roomId, e.content);
+    if (e.content["xyz.deloop.side_opened"] && event.sender === process.env.DELOOP_OWNER) await sideOpened(roomId, event.event_id, e.content["xyz.deloop.side_opened"]);
     return;
   }
   if (event.sender === session.user_id) return;
   if (e.content?.["xyz.deloop.topic"]) {
     const s = sessionOf(roomId);
-    if (s) topics.set(s, e.content.body);
+    if (s) noteTopic(s, e.content);
     return;
   }
   wake({ room: roomId, session: sessionOf(roomId), kind: stateOf(roomId, "xyz.deloop.room")?.kind, sender: e.sender, body: e.content?.body ?? "" });
@@ -409,6 +422,39 @@ async function notAgreedYet(botsRoom) {
   const yes = new Set(messages.filter((m) => m.answer?.proposal === proposal.proposal.id && m.answer.accepted).map((m) => m.sender));
   const missing = bots.filter((b) => !yes.has(b));
   return missing.length ? `Not every bot has accepted the proposal yet: waiting for ${missing.join(", ")}.` : null;
+}
+
+// ---------- Side sessions ----------
+
+// The owner's app answered a side request: announce the side session in the main session's bots room,
+// once per request and in code, clear waiting, and wake the agent in the side session.
+const announced = new Set();
+async function sideOpened(ownerRoom, answerId, { for: requestId, session: sideSession }) {
+  if (!requestId || !sideSession || announced.has(requestId)) return;
+  announced.add(requestId);
+  try {
+    const request = await clear(ownerRoom, await api("GET", `${room(ownerRoom)}/event/${encodeURIComponent(requestId)}`));
+    const side = request.content?.["xyz.deloop.side"];
+    if (request.sender !== session.user_id || !side?.with) return;
+    const main = side.from ?? sessionOf(ownerRoom);
+    await sendMessage(roomFor(main, "bots"), `My owner's agent continues with ${side.with}'s agent in a side session on: ${side.topic}.`, {
+      "xyz.deloop.side": { with: side.with, topic: side.topic, session: sideSession },
+    });
+    await sendMessage(ownerRoom, "Carrying on.", { "xyz.deloop.waiting": false });
+    noteMarker(ownerRoom, { "xyz.deloop.waiting": false });
+    // The side session's rooms may still be joining; wake the agent there a little later.
+    setTimeout(() => {
+      let bots;
+      try {
+        bots = roomFor(sideSession, "bots");
+      } catch {
+        return;
+      }
+      wake({ room: bots, session: sideSession, kind: "bots", sender: process.env.DELOOP_OWNER ?? "", body: `The side session you asked for is open, with ${side.with}, on: ${side.topic}. Continue there.` });
+    }, 8000);
+  } catch (err) {
+    console.error(`Side session ${sideSession}: ${err.message}`);
+  }
 }
 
 // ---------- MCP tools ----------
@@ -468,6 +514,18 @@ function mcpServer() {
       await sendMessage(rid, waiting ? "Waiting for you." : "Carrying on.", { "xyz.deloop.waiting": waiting });
       noteMarker(rid, { "xyz.deloop.waiting": waiting });
       return json({ ok: true });
+    },
+  );
+
+  server.registerTool(
+    "open_side_session",
+    { description: "Ask your owner's app to open a side session with one person's agent, in their one-to-one chat, on one topic: for something released only to that counterpart. Sends the request to the owner room and sets waiting; once the app has opened it, the connector announces it in this session's bots room and you continue there. Never write such a value in a shared room.", inputSchema: { session: z.string().describe("The session you are in now"), with: z.string().describe("The person's Matrix address, e.g. @jonas:deloop.website"), topic: z.string() } },
+    async ({ session: s, with: who, topic }) => {
+      const rid = roomFor(s, "owner");
+      const event_id = await sendMessage(rid, `Continuing with ${who}'s agent on: ${topic}.`, { "xyz.deloop.side": { with: who, topic, from: s } });
+      await sendMessage(rid, "Waiting for you.", { "xyz.deloop.waiting": true });
+      noteMarker(rid, { "xyz.deloop.waiting": true });
+      return json({ ok: true, request: event_id, note: "Your owner's app opens the side session; the connector announces it and wakes you there." });
     },
   );
 
