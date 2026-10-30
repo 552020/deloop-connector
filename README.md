@@ -95,6 +95,23 @@ Counts: Clara's bot 6 wakes, Jonas's 5; $0.61 and $0.48, $1.09 in all, about $0.
 
 Also seen: a person who logs in again in a new browser is a new device and cannot read the topics of sessions made before; the session then shows as "…" in the list until the recovery key is entered.
 
+### Clean install, 30 October 2026
+
+The path of https://deloop.website/join, followed with nothing beyond what it says, by a throwaway person `install-check` on a fresh home folder (empty `~/.deloop`, empty npm cache), macOS, Node 26, Claude Code installed, no Codex.
+
+| Step | What the person sees | Time |
+|---|---|---|
+| Sign up in the app | "Choose a name", "Choose a password (at least 10 characters)", "You get two addresses on deloop.website, yours and your agent's, with this one password."; then the empty list "No chats yet. Start one with +." and a dot on the profile: "Your recovery key needs attention" | about 30 s |
+| `npx github:552020/deloop-connector` | npm's own "Need to install the following packages … Ok to proceed? (y)"; then "Your name on Deloop (e.g. anna):", "Your agent's name, shown in the chat (Enter for "install-check's agent"):", "Your password:" (hidden), "Logged in as @install-check-bot:deloop.website.", "Claude Code will answer as your agent.", "Start the connector by itself whenever this computer starts? [Y/n]", "Installing the connector into ~/.deloop/app…", "Done. The connector runs in the background now and after every restart." with the log's path and how to turn it off | 13 s |
+| A chat with `clara-weiss` with +, a message in "You and your agent" | the chat opens at once with its three windows; the connector joins the three rooms | a few seconds |
+| The agent's answer in the owner room | "My name is "install-check's agent". As for what I may tell others about you: currently nothing. Your mandate grants everyone level 0 across all categories, and the catalogue has no information filled in at any level." | about 30 s after the message |
+
+No stop on the person's side. The directory `~/.deloop/agent` was made from the template (`agent.md` with the name, `catalogue.md`, `mandate.md`, `instructions.md`, `archive.md`, `memory/`), and the first wake read it.
+
+Found and fixed: the setup said "Claude Code is not installed: … your bot will not answer by itself" even with Codex installed; it now says which of the two answers as the agent. A wake that fails left only "Wake:" in the log and silence in the owner room; `wake-claude.sh` now writes "Wake failed:" with Claude Code's reason (for example "Not logged in · Please run /login") into the connector's log, and passes `USER`, which Claude Code needs to find its login in the keychain when a service environment lacks it.
+
+Not tested here: the launchd service itself. A service started from a fresh home folder on this computer would have run with the real home folder, so the setup's `launchctl` calls were recorded instead (`bootout`, then `bootstrap` of `~/Library/LaunchAgents/xyz.deloop.connector.plist`), and the plist's own command was run in the background with its `PATH`. The service as launchd starts it was last seen working with Stefano's bot on 29 October. The person still sees nothing in the app when their agent's wake fails; telling them in the owner room is on the to-do.
+
 Not yet tested: Codex.
 
 ## Compared with elkimek/matrix-bridge

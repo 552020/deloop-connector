@@ -5,6 +5,8 @@
 # the owner's own ~/.claude/CLAUDE.md included: the run gets the instructions and nothing else.
 # WAKE_LOG, if set, is a file that gets one JSON line per wake (cost, tokens, time).
 cd "$(dirname "$0")"
+# Claude Code finds its login in the keychain by the user name; a bare service environment may lack it.
+export USER="${USER:-$(id -un)}"
 . ./wake-context.sh
 
 out=$(claude -p "New message in Matrix room $DELOOP_ROOM (session: ${DELOOP_SESSION:-none}, kind: ${DELOOP_KIND:-plain room}) from $DELOOP_SENDER:
@@ -20,6 +22,13 @@ Read the room with the deloop tools and reply if a reply is due." \
   --allowedTools "mcp__deloop__*" \
   --output-format json)
 rm -f "$WAKE_INSTRUCTIONS"
+
+# A run that failed (not logged in, no subscription, no network) says why in the connector's log.
+printf '%s\n' "$out" | node -e '
+let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+  let r; try { r = JSON.parse(s); } catch { return console.error("Wake failed: Claude Code gave no answer" + (s.trim() ? ": " + s.trim().slice(0, 300) : "")); }
+  if (r.is_error) console.error("Wake failed: " + String(r.result ?? r.subtype ?? "error").slice(0, 300));
+});'
 
 [ -n "$WAKE_LOG" ] && printf '%s\n' "$out" | node -e '
 let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
