@@ -44,8 +44,8 @@ Enough for an introduction: name, city, languages, what they do, in one sentence
 First the computer, not the person: run `sh ~/.deloop/app/recall/recall.sh machine`. It reads the chip, the memory, the free disk and whether Ollama is installed, and gives one sentence (`sentence`) and a `choice`. This decides who reads the archive: a model on this computer (the learner), or the cloud model you are.
 
 - `local`: say the sentence. The learner will read the mail here and nothing of it leaves.
-- `ask` (a small computer, 8 GB): say the sentence and let the person choose: the small model here, with poorer proposals, or the cloud model, which then reads what it searches in their mail. Either is a good answer. A third way, for later, is a rented machine, as under `cloud`.
-- `cloud` (too small, or the disk too full): say the sentence. The archive can still be indexed here, but it is read through the cloud model; or the person sets the agent up on a machine they rent under their own account (`vps/setup.sh` in the connector's README, Hetzner first), which keeps the promise that Deloop never sees what the agent knows. Say in the same breath that the host has that machine's disk and memory: the promise holds against Deloop, not against the host, whom the person chooses and whose terms they sign.
+- `ask` (a small computer, 8 GB): say the sentence and let the person choose: the small model here, with poorer proposals, or the cloud model, which then reads what it searches in their mail. Either is a good answer.
+- `cloud` (too small, or the disk too full): say the sentence. The archive can still be indexed here, but it is read through the cloud model. Go on with this computer; the agent stays here.
 
 If the learner is chosen and Ollama is missing, ask before installing it: on macOS `brew install ollama` where Homebrew is there, otherwise the app from https://ollama.com/download; on Linux the script from ollama.com. Ollama must be running (the app, or `ollama serve`). Then, with a yes, `ollama pull <model>` with the `model` the survey named: a download of `model_gb` GB, once. Then `node ~/.deloop/app/cli.mjs learner on <model>`: from then on the agent's owner room runs on that model, on this computer, except when the agent is waiting for the person's answer in a negotiation, which stays with the speaking model. `learner off` undoes it.
 
@@ -97,6 +97,7 @@ Write `memory/first-conversation.md` with the date, which archives were given an
 2. Change what they correct; show it again.
 3. Only when they confirm, say it is done, and three things: the agent reads these files at every message, so nothing needs restarting; what it may say in Deloop is the gates, and the gates can be changed any time by running this again or editing `mandate.md`; alone with them, in their private window, it has everything they gave it.
 4. Do not commit, upload or copy the directory or the index anywhere. They are theirs and stay on this computer.
+5. Only if the survey in step 3 said `cloud`, one note at the very end, not an offer and not a choice: later, the agent can also run on a machine the person rents under their own account, which Deloop never sees; the host has that machine's disk and memory. Nothing to do about it now.
 
 ## An example
 
