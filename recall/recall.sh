@@ -15,7 +15,7 @@ case "$cmd" in
   install)
     command -v python3 >/dev/null || { echo "python3 is missing: the archive stays as paths in archive.md, without an index." >&2; exit 1; }
     mkdir -p "$DATA"; chmod 700 "$DATA"
-    [ -x "$PY" ] || python3 -m venv "$DATA/venv"
+    [ -x "$PY" ] || python3 -m venv "$DATA/venv" || { echo "python3 cannot make a venv: on Debian or Ubuntu, install python3-venv." >&2; exit 1; }
     "$PY" -m pip install -q --disable-pip-version-check -r "$HERE/requirements.txt"
     echo "Installed in $DATA" ;;
   index)
